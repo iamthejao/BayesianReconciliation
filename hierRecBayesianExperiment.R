@@ -103,13 +103,13 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   mseBottomUp = mean  ( (allts(test)[h,] - predsBottomUp)^2 )
   
   # # Calculating initial MSEs
-  mCov_shrmint = estimateCovariance(residuals, method='shrmint')
+  mCov_shrmint = round(estimateCovariance(residuals, method='shrmint'),4)
   #mCov_glasso = estimateCovariance(residuals, method='glasso')
   
-  outBayesShr = bayesReconFull(preds, mSumMatrix, mCov_shrmint)
+  outBayesShr = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
   fcastBayesShr = outBayesShr$coherentPreds
   
-  outBayesShrNotFull = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint)
+  outBayesShrNotFull = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
   fcastBayesShrNotFull = outBayesShrNotFull$coherentPreds
   
   mseBayesShrFull =  mean((allts(test)[h,] - fcastBayesShr)^2)

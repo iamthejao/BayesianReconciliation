@@ -17,7 +17,8 @@ colVars <- function(x, ...) {
   return(t(tmp))
 }
 
-energyScore <- function(target, mean, covariance, sample=5000){
+# THIS IS WRONG FOR TRUNCATED, I HAVE TO SAMPLE FROM THE TRUNCATED BASE DIST AND THEN CONTINUE
+energyScore <- function(target, mean, covariance, sample=50000, truncated=FALSE){
   
   # This gives an error saying that the covariance matrix is not SPD
   #mCholCov = chol(covariance)
@@ -25,15 +26,21 @@ energyScore <- function(target, mean, covariance, sample=5000){
   #rnormal = matrix(rnorm(dims * twoSample), twoSample, dims)
   #mMean = t(do.call(cbind, foreach(i=1:(2*sample))%do%{mean}))
   #samples = (rnormal %*% mCholCov) + mMean
+  #rtmvnorm
   
   twoSample = 2 * sample
-  mTarget = t(do.call(cbind, foreach(i=1:sample)%do%{target}))
-  samples = mvrnorm(n=twoSample, mu=mean, Sigma=covariance)
+  #mTarget = t(do.call(cbind, foreach(i=1:sample)%do%{target})) slow
+  if (truncated){
+    samples = rtmvnorm(twoSample, mean=as.numeric(mean), sigma=covariance,
+             lower=rep(0, length(mean)), algorithm="rejection")
+  }else{
+    samples = mvrnorm(n=twoSample, mu=mean, Sigma=covariance)
+  }
   
   samples1 = samples[(1:sample),]
   samples2 = samples[((sample+1):twoSample), ]
   
-  term1 = (samples1 - mTarget)
+  term1 = t(apply(samples1, 1, function(x){x-target}))#(samples1 - mTarget) slow
   normst1 = apply(term1, 1, function(x){norm(x,"2")})
   
   term2 = (samples1 - samples2)
@@ -143,6 +150,7 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   
   # Posterior Cov
   mSigmaBp = mSigmaB - mGain %*% (mA%*%mSigmaB+mMtr)
+  mSigmaBp = round(mSigmaBp, 2)
   
   # Coherent predictions
   vCoherentPreds = mSumMatrix %*% vPosteriorMean
@@ -152,6 +160,15 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   
   out = list(posteriorMean=vPosteriorMean, posteriorVariance=mSigmaBp,
              coherentPreds=vCoherentPreds, coherentCovariance=mCoherentVariance)
+  
+  if (positivity){
+    vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
+                                   sigma=mSigmaBp,
+                                   lower=rep(0, length(vPosteriorMean)),
+                                   doComputeVariance=FALSE)$tmean
+    out$posteriorMeanTrunc = vPosteriorMeanTrunc
+    out$coherentPredsTrunc = mSumMatrix %*% vPosteriorMeanTrunc
+  }
   return(out)
 }
 
@@ -205,6 +222,14 @@ bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   out = list(posteriorMean=vPosteriorMean, posteriorVariance=mSigmaBp,
              coherentPreds=vCoherentPreds,
              coherentCovariance = mCoherentVariance)
+  if (positivity){
+    vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
+                                   sigma=mSigmaBp,
+                                   lower=rep(0, length(vPosteriorMean)),
+                                   doComputeVariance=FALSE)$tmean
+    out$posteriorMeanTrunc = vPosteriorMeanTrunc
+    out$coherentPredsTrunc = mSumMatrix %*% vPosteriorMeanTrunc
+  }
   return(out)
 }
 
