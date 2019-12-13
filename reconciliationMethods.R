@@ -5,51 +5,38 @@ library(matlib)
 library(MASS)
 library(scoringRules)
 library(tmvtnorm)
+library(matrixStats)
+library(wordspace)
 source("loadTourism.R")
 
-rowVars <- function(x, ...) {
-  rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
-}
-
-colVars <- function(x, ...) {
-  x = t(x)
-  tmp = rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
-  return(t(tmp))
+makeSymmetric <- function(covariance){
+  upperIdx = upper.tri(covariance)
+  lowerIdx = lower.tri(covariance)
+  if (sum(covariance[upperIdx]) > sum(covariance[lowerIdx])){
+    sym = forceSymmetric(covariance, "U")
+  } else {
+    sym = forceSymmetric(covariance, "L")
+  }
+  return(sym)
 }
 
 # THIS IS WRONG FOR TRUNCATED, I HAVE TO SAMPLE FROM THE TRUNCATED BASE DIST AND THEN CONTINUE
-energyScore <- function(target, mean, covariance, sample=50000, truncated=FALSE){
+energyScore <- function(target, sample){
+  size = dim(sample)[1]
+  randPermutation = sample(size)
   
-  # This gives an error saying that the covariance matrix is not SPD
-  #mCholCov = chol(covariance)
-  #dims = dim(covariance)[1]
-  #rnormal = matrix(rnorm(dims * twoSample), twoSample, dims)
-  #mMean = t(do.call(cbind, foreach(i=1:(2*sample))%do%{mean}))
-  #samples = (rnormal %*% mCholCov) + mMean
-  #rtmvnorm
+  samples1 = sample
+  samples2 = sample[randPermutation, ]
   
-  twoSample = 2 * sample
-  #mTarget = t(do.call(cbind, foreach(i=1:sample)%do%{target})) slow
-  if (truncated){
-    samples = rtmvnorm(twoSample, mean=as.numeric(mean), sigma=covariance,
-             lower=rep(0, length(mean)), algorithm="rejection")
-  }else{
-    samples = mvrnorm(n=twoSample, mu=mean, Sigma=covariance)
-  }
-  
-  samples1 = samples[(1:sample),]
-  samples2 = samples[((sample+1):twoSample), ]
-  
-  term1 = t(apply(samples1, 1, function(x){x-target}))#(samples1 - mTarget) slow
-  normst1 = apply(term1, 1, function(x){norm(x,"2")})
+  mTarget = as.matrix(rep(1, size)) %*% as.vector(target)
+  term1 = (samples1 - mTarget)
+  normst1 = rowNorms(term1)
   
   term2 = (samples1 - samples2)
-  normst2 = apply(term2, 1, function(x){norm(x,"2")})
+  normst2 = rowNorms(term2)
   
-  score = (sum(normst1) - 0.5 * sum(normst2))/(sample-1)
-  scoreLib = NaN#scoringRules::es_sample(target, t(samples))
-  out = list(score=score, scoreLib=scoreLib)
-  return(out)
+  score = mean(normst1) - 0.5 * mean(normst2)
+  return(score)
 }
 
 estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labels=NULL){
@@ -109,7 +96,7 @@ estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labe
   return(covar)
 }
 
-bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
+bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=250000){
   
   # Defining sumMatrix and idxs
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
@@ -118,6 +105,7 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   # Defining covariance
   mA = mSumMatrix[upperIdx, ]
   mAtr = t(mA)
+  mSumMatrixT = t(mSumMatrix)
   
   # Taking predictions
   vBottomPreds = preds[bottomIdx]
@@ -150,7 +138,7 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   
   # Posterior Cov
   mSigmaBp = mSigmaB - mGain %*% (mA%*%mSigmaB+mMtr)
-  mSigmaBp = round(mSigmaBp, 2)
+  mSigmaBp = makeSymmetric(mSigmaBp)
   
   # Coherent predictions
   vCoherentPreds = mSumMatrix %*% vPosteriorMean
@@ -162,17 +150,38 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
              coherentPreds=vCoherentPreds, coherentCovariance=mCoherentVariance)
   
   if (positivity){
-    vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
-                                   sigma=mSigmaBp,
-                                   lower=rep(0, length(vPosteriorMean)),
-                                   doComputeVariance=FALSE)$tmean
-    out$posteriorMeanTrunc = vPosteriorMeanTrunc
-    out$coherentPredsTrunc = mSumMatrix %*% vPosteriorMeanTrunc
+    
+    # vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
+    #                                sigma=mSigmaBp,
+    #                                lower=rep(0, length(vPosteriorMean)),
+    #                                doComputeVariance=FALSE)$tmean
+    
+    # Mean and median through sampling
+    sample = rtmvnorm(sampleSize, mean=as.numeric(vPosteriorMean), sigma=mSigmaBp,
+                      lower=rep(0, length(vPosteriorMean)), algorithm="rejection")
+    truncMean = colMeans(sample)
+    truncMedian = colMedians(sample)
+    
+    out$posteriorMeanTrunc = truncMean
+    out$posteriorMedianTrunc = truncMedian
+    out$coherentPredsTrunc = mSumMatrix %*% truncMean
+    out$coherentPredsMedianTrunc = mSumMatrix %*% truncMedian
+    out$truncSample = sample
+  } else {
+    sample = mvrnorm(n=sampleSize, mu=vPosteriorMean, Sigma=mSigmaBp)
+    meanSample = colMeans(sample)
+    medianSample = colMedians(sample)
+    
+    out$sample = sample
+    out$posteriorMeanSample = meanSample
+    out$posteriorMedianSample = medianSample
+    out$coherentPredsSample = mSumMatrix %*% meanSample
+    out$coherentPredsMedianSample = mSumMatrix %*% medianSample
   }
   return(out)
 }
 
-bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
+bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=250000){
   
   # Defining sumMatrix and idxs
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
@@ -181,6 +190,7 @@ bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   # Defining covariance
   mA = mSumMatrix[upperIdx, ]
   mAtr = t(mA)
+  mSumMatrixT = t(mSumMatrix)
   
   # Taking predictions
   vBottomPreds = preds[bottomIdx]
@@ -208,6 +218,7 @@ bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   
   # Posterior Cov
   mSigmaBp = mSigmaB - mGain %*% (mSigmaU + mA %*% mSigmaB %*% mAtr) %*% t(mGain)
+  mSigmaBp = makeSymmetric(mSigmaBp)
   # BOTH LEAD TO SAME RESULT
   #test <- mSigmaB - mGain %*% mA %*% mSigmaB
   
@@ -222,13 +233,35 @@ bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE){
   out = list(posteriorMean=vPosteriorMean, posteriorVariance=mSigmaBp,
              coherentPreds=vCoherentPreds,
              coherentCovariance = mCoherentVariance)
+  
   if (positivity){
-    vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
-                                   sigma=mSigmaBp,
-                                   lower=rep(0, length(vPosteriorMean)),
-                                   doComputeVariance=FALSE)$tmean
-    out$posteriorMeanTrunc = vPosteriorMeanTrunc
-    out$coherentPredsTrunc = mSumMatrix %*% vPosteriorMeanTrunc
+    
+    # vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
+    #                                sigma=mSigmaBp,
+    #                                lower=rep(0, length(vPosteriorMean)),
+    #                                doComputeVariance=FALSE)$tmean
+    
+    # Mean and median through sampling
+    sample = rtmvnorm(sampleSize, mean=as.numeric(vPosteriorMean), sigma=mSigmaBp,
+                      lower=rep(0, length(vPosteriorMean)), algorithm="rejection")
+    truncMean = colMeans(sample)
+    truncMedian = colMedians(sample)
+    
+    out$posteriorMeanTrunc = truncMean
+    out$posteriorMedianTrunc = truncMedian
+    out$coherentPredsTrunc = mSumMatrix %*% truncMean
+    out$coherentPredsMedianTrunc = mSumMatrix %*% truncMedian
+    out$truncSample = sample
+  } else {
+    sample = mvrnorm(n=sampleSize, mu=vPosteriorMean, Sigma=mSigmaBp)
+    meanSample = colMeans(sample)
+    medianSample = colMedians(sample)
+    
+    out$sample = sample
+    out$posteriorMeanSample = meanSample
+    out$posteriorMedianSample = medianSample
+    out$coherentPredsSample = mSumMatrix %*% meanSample
+    out$coherentPredsMedianSample = mSumMatrix %*% medianSample
   }
   return(out)
 }
@@ -435,4 +468,14 @@ checkCalibration <- function(h, preds,sigmas,htsActual,coverage){
 #     (Y_vec - t(A) %*% priorMean)
 #   bayesPreds <- buReconcile(postMean, S, predsAllTs = FALSE)
 #   return(bayesPreds)
+# }
+
+# rowVars <- function(x, ...) {
+#   rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
+# }
+# 
+# colVars <- function(x, ...) {
+#   x = t(x)
+#   tmp = rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
+#   return(t(tmp))
 # }

@@ -6,10 +6,10 @@ options(bigmemory.allow.dimnames=TRUE)
 registerDoMC(detectCores()-1)
 library(tictoc)
 
-dset="infantgts"
+dset="syntheticLarge"
 h=1
 fmethod="ets"
-iTest=1
+iTest=49
 seed=0
 testSize=50
 
@@ -17,7 +17,7 @@ testSize=50
 
 hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=50,
                         seed=0, synth_n=100, synthCorrel=0.5, # Parameters only for synthetic TS
-                        printResults=FALSE, testProbability=0.1)
+                        printResults=FALSE, testProbability=0.05)
   {
   
   # Setting seed and loading dataset
@@ -102,37 +102,42 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   predsBottomUp = mSumMatrix %*% preds[bottomIdx]
   mseBottomUp = mean  ( (allts(test)[h,] - predsBottomUp)^2 )
   
-  # # Calculating initial MSEs
+  # Calculating outputs
   mCov_shrmint = round(estimateCovariance(residuals, method='shrmint'),4)
-  #mCov_glasso = estimateCovariance(residuals, method='glasso')
+  outBayesFull = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=FALSE)
+  outBayesFullPositive = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
+  outBayes = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=FALSE)
+  outBayesPositive = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
   
-  outBayesShr = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
-  fcastBayesShr = outBayesShr$coherentPreds
+  # Calculating MSEs
   
-  outBayesShrNotFull = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
-  fcastBayesShrNotFull = outBayesShrNotFull$coherentPreds
+  # Full Bayes Mean and Median
+  mseBayesFull = mean((allts(test)[h,] - outBayesFull$coherentPreds)^2)
+  mseBayesFullMeanSample = mean((allts(test)[h,] - outBayesFull$coherentPredsSample)^2)
+  mseBayesFullMedianSample = mean((allts(test)[h,] - outBayesFull$coherentPredsMedianSample)^2)
   
-  mseBayesShrFull =  mean((allts(test)[h,] - fcastBayesShr)^2)
-  mseBayesShrNotFull =  mean((allts(test)[h,] - fcastBayesShrNotFull)^2)
+  # Full Bayes Mean and Median Truncated
+  mseBayesFullPosMean = mean((allts(test)[h,] - outBayesFullPositive$coherentPredsTrunc)^2)
+  mseBayesFullPosMedian = mean((allts(test)[h,] - outBayesFullPositive$coherentPredsMedianTrunc)^2)
   
-  # Energy Score
+  # Bayes Mean and Median
+  mseBayes = mean((allts(test)[h,] - outBayes$coherentPreds)^2)
+  mseBayesMeanSample = mean((allts(test)[h,] - outBayes$coherentPredsSample)^2)
+  mseBayesMedianSample = mean((allts(test)[h,] - outBayes$coherentPredsMedianSample)^2)
+  
+  # Bayes Mean and Median Truncated
+  mseBayesPosMean = mean((allts(test)[h,] - outBayesPositive$coherentPredsTrunc)^2)
+  mseBayesPosMedian = mean((allts(test)[h,] - outBayesPositive$coherentPredsMedianTrunc)^2)
+  
+  # Calculating ES
   target = allts(test)[h,]
-  covarianceFull = outBayesShr$coherentCovariance
-  meanFull = as.numeric(fcastBayesShr)
-  
-  covarianceNotFull = outBayesShrNotFull$coherentCovariance
-  meanNotFull = as.numeric(fcastBayesShrNotFull)
-  
-  esBayesFull = energyScore(target, meanFull, covarianceFull)$score
-  esBayesNotFull = energyScore(target, meanNotFull, covarianceNotFull)$score
-  
-  #fcastBayesGlasso = bayesReconFull(preds, mSumMatrix, mCov_glasso)
-  #fcastBayesGlassoNotFull = bayesReconNotFull(preds, mSumMatrix, mCov_glasso)
-  mseBayesGlassoFull =  NaN#mean((allts(test)[h,] - fcastBayesGlasso)^2)
-  mseBayesGlassoNotFull =  NaN#mean((allts(test)[h,] - fcastBayesGlassoNotFull)^2)
+  esBayesFull = energyScore(target,  outBayesFull$sample %*% t(mSumMatrix))
+  esBayesFullPos = energyScore(target,  outBayesFullPositive$truncSample %*% t(mSumMatrix))
+  esBayes = energyScore(target, outBayes$sample %*% t(mSumMatrix))
+  esBayesPos = energyScore(target, outBayesPositive$truncSample %*% t(mSumMatrix))
   
   # Checking MinT library implementation with a certain probability
-  mseMintShr = NaN
+  mseMint = NaN
   if (runif(1) < testProbability){
     print("Performing MinT on library for double check")
     tic("Running MinT")
@@ -146,24 +151,14 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
                                   parallel=parallel, num.cores=10)
     }
     fcastMintShr = allts(fcastMintShr)[h,]
-    mseMintShr  <- mean((allts(test)[h,] - fcastMintShr)^2)
-    diff = fcastMintShr - fcastBayesShr
+    mseMint  <- mean((allts(test)[h,] - fcastMintShr)^2)
+    diff = fcastMintShr - outBayesFull$coherentPreds
     if (norm(diff, "2") > 1.0){
-      print(mseBayesShrFull)
-      print(mseMintShr)
+      print(mseBayesFull)
+      print(mseMint)
       stop("MinT and Bayes result diverged.")
     }
     toc()
-  }
-  
-  if (printResults){
-    print(c("MseBase: ",mseBase))
-    print(c("MseBottomUp: ",mseBottomUp))
-    print(c("MseBayesShr: ",mseBayesShrFull))
-    print(c("MseMinTShr: ",mseMintShr))
-    print(c("MseBayesShrNotFull: ",mseBayesShrNotFull))
-    print(c("MseBayesGlasso: ",mseBayesGlassoFull))
-    print(c("MseBayesGlassoNotFull: ",mseBayesGlassoNotFull))
   }
   
   if (dset=="synthetic"){
@@ -174,15 +169,26 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   }
   
   cols = c("dset", "h", "iTest", "fmethod",
-           "mseBase", "mseBottomUp",
-           "mseBayesShr", "mseBayesShrFull",
-           "mseMinT",
-           "mseBayesGlasso", "mseBayesGlassoFull",
-           "esBayesShrNotFull", "esBayesShrFull")
+           "mseBase", "mseBottomUp", "mseMinT",
+           
+           "mseBayesFull", "mseBayesFullMeanS", "mseBayesFullMedianS",
+           "mseBayesFullPosMeanS", "mseBayesFullPosMedianS",
+           
+           "mseBayes", "mseBayesMeanS", "mseBayesMedianS",
+           "mseBayesPosMeanS", "mseBayesPosMedianS",
+           
+           "esBayesFull", "esBayesFullPos",
+           "esBayes", "esBayesPos")
   
-  dataFrame <- data.frame(dset, h, iTest, fmethod, mseBase, mseBottomUp, mseBayesShrNotFull, mseBayesShrFull,
-                          mseMintShr, mseBayesGlassoNotFull, mseBayesGlassoFull,
-                          esBayesNotFull, esBayesFull)
+  dataFrame <- data.frame(dset, h, iTest, fmethod,
+                          mseBase, mseBottomUp, mseMint,
+                          mseBayesFull, mseBayesFullMeanSample, mseBayesFullMedianSample,
+                          mseBayesFullPosMean, mseBayesFullPosMedian,
+                          mseBayes, mseBayesMeanSample, mseBayesMedianSample,
+                          mseBayesPosMean, mseBayesPosMedian,
+                          esBayesFull, esBayesFullPos,
+                          esBayes, esBayesPos)
+  
   colnames(dataFrame) <- cols
   return(dataFrame)
 }
