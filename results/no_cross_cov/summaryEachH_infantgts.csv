@@ -1,9 +1,0 @@
-"cases","h","fmethod","medianBaseBayesShr","medianMintBayesShr"
-"49",1,"ets",0.99,0.96
-"48",2,"ets",0.97,1
-"47",3,"ets",0.98,1
-"46",4,"ets",0.99,1.01
-"49",1,"arima",0.95,0.99
-"48",2,"arima",1.07,1.02
-"47",3,"arima",1.06,1.03
-"46",4,"arima",1.08,1.02
