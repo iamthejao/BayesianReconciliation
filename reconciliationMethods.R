@@ -20,7 +20,6 @@ makeSymmetric <- function(covariance){
   return(sym)
 }
 
-# THIS IS WRONG FOR TRUNCATED, I HAVE TO SAMPLE FROM THE TRUNCATED BASE DIST AND THEN CONTINUE
 energyScore <- function(target, sample){
   size = dim(sample)[1]
   randPermutation = sample(size)
