@@ -3,7 +3,7 @@ library(doMC)
 registerDoMC(10)
 source("hierRecBayesianExperiment.R")
 
-batchHierAndParse <- function(dset, folder, seed=0, hs=c(1,2,3,4), models=c("ets", "arima")){
+batchHierAndParse <- function(dset, folder, file, seed=0, hs=c(1,2,3,4), models=c("ets", "arima")){
   
   for (model in models){
     for (h in hs){
@@ -16,9 +16,10 @@ batchHierAndParse <- function(dset, folder, seed=0, hs=c(1,2,3,4), models=c("ets
           return(ans)
         }
       toc()
+      gc()
       # Appending par results together and writing
       dataFrame = do.call("rbind", dsets)
-      filename <- paste(folder, "/experiment_",dset,".csv",sep="")
+      filename <- paste(folder, "/",file,dset,".csv",sep="")
       writeNames <- TRUE
       if(file.exists(filename)){
       writeNames <- FALSE
@@ -28,4 +29,7 @@ batchHierAndParse <- function(dset, folder, seed=0, hs=c(1,2,3,4), models=c("ets
   }
 }
 
-batchHierAndParse("infantgts", "results/bayesian_results", hs=c(2,3,4), models=c("arima"))
+batchHierAndParse("infantgts", "results/bayesian_results", "arimaOnly", hs=c(1,2,3,4), models=c("ets"))
+
+
+

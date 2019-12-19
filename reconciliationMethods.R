@@ -9,6 +9,25 @@ library(matrixStats)
 library(wordspace)
 source("loadTourism.R")
 
+calculateStatistics <- function(target, mean, median, sample, upperIdx, bottomIdx, suffix=""){
+  rmseMean = sqrt(mean((target - mean)^2))
+  rmseMedian = sqrt(mean((target - median)^2))
+  maeMean = mean(abs(target - mean))
+  maeMedian = mean(abs(target - median))
+  esAll = energyScore(target, sample)
+  esUpper = energyScore(target[upperIdx], sample[,upperIdx])
+  esBottom = energyScore(target[bottomIdx], sample[,bottomIdx])
+  out = list()
+  out[paste0("rmseMean",suffix)] = rmseMean
+  out[paste0("rmseMedian",suffix)] = rmseMedian
+  out[paste0("maeMean",suffix)] = maeMean
+  out[paste0("maeMedian",suffix)] = maeMedian
+  out[paste0("esAll",suffix)] = esAll
+  out[paste0("esUpper",suffix)] = esUpper
+  out[paste0("esBottom",suffix)] = esBottom
+  return(out)
+}
+
 makeSymmetric <- function(covariance){
   upperIdx = upper.tri(covariance)
   lowerIdx = lower.tri(covariance)
@@ -35,7 +54,9 @@ energyScore <- function(target, sample){
   normst2 = rowNorms(term2)
   
   score = mean(normst1) - 0.5 * mean(normst2)
-  return(score)
+  score2 = NaN#es_sample(y = target, t(sample))
+  #out = list(score=score, score2=score2)
+  return(score)#(out)
 }
 
 estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labels=NULL){
@@ -95,7 +116,7 @@ estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labe
   return(covar)
 }
 
-bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=250000){
+bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=100000){
   
   # Defining sumMatrix and idxs
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
@@ -137,8 +158,11 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSi
   
   # Posterior Cov
   mSigmaBp = mSigmaB - mGain %*% (mA%*%mSigmaB+mMtr)
-  mSigmaBp = makeSymmetric(mSigmaBp)
   
+  # it is not symmetric due to matrix multiplication error accumualating, so we force symmetry
+  # and mirror the part with highest sum of variance (the difference should be very low anyway)
+  mSigmaBp = makeSymmetric(mSigmaBp)
+
   # Coherent predictions
   vCoherentPreds = mSumMatrix %*% vPosteriorMean
   mCoherentVariance = mSumMatrix %*% mSigmaBp %*% mSumMatrixT
@@ -166,7 +190,9 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSi
     out$coherentPredsTrunc = mSumMatrix %*% truncMean
     out$coherentPredsMedianTrunc = mSumMatrix %*% truncMedian
     out$truncSample = sample
+    
   } else {
+    
     sample = mvrnorm(n=sampleSize, mu=vPosteriorMean, Sigma=mSigmaBp)
     meanSample = colMeans(sample)
     medianSample = colMedians(sample)
@@ -176,11 +202,12 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSi
     out$posteriorMedianSample = medianSample
     out$coherentPredsSample = mSumMatrix %*% meanSample
     out$coherentPredsMedianSample = mSumMatrix %*% medianSample
+    
   }
   return(out)
 }
 
-bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=250000){
+bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=100000){
   
   # Defining sumMatrix and idxs
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))

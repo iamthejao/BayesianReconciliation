@@ -6,12 +6,12 @@ options(bigmemory.allow.dimnames=TRUE)
 registerDoMC(detectCores()-1)
 library(tictoc)
 
-dset="syntheticLarge"
-h=1
-fmethod="ets"
-iTest=49
-seed=0
-testSize=50
+# dset="infantgts"
+# h=1
+# fmethod="ets"
+# iTest=49
+# seed=0
+# testSize=50
 
 #hierRecBayesianExperiment(dset, h, fmethod, iTest)
 
@@ -98,46 +98,51 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   residuals[, upperIdx] = residuals[, upperIdx] * -1
   
   # Base and BottomUp MSE
-  mseBase =  mean  ( (allts(test)[h,] - preds)^2 )
+  rmseBase =  sqrt(mean  ( (allts(test)[h,] - preds)^2 ))
   predsBottomUp = mSumMatrix %*% preds[bottomIdx]
-  mseBottomUp = mean  ( (allts(test)[h,] - predsBottomUp)^2 )
+  rmseBottomUp = sqrt(mean  ( (allts(test)[h,] - predsBottomUp)^2 ))
+  
+  # Calculating covariance matrix using shrink
+  mCov_shrmint = estimateCovariance(residuals, method='shrmint')
   
   # Calculating outputs
-  mCov_shrmint = round(estimateCovariance(residuals, method='shrmint'),4)
+  # Full covariance bayes with and wo positivity constraint
+  # Diagonal covariance bayes with and wo positivity constraint
   outBayesFull = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=FALSE)
   outBayesFullPositive = bayesReconFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
   outBayes = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=FALSE)
   outBayesPositive = bayesReconNotFull(preds, mSumMatrix, mCov_shrmint, positivity=TRUE)
   
-  # Calculating MSEs
-  
-  # Full Bayes Mean and Median
-  mseBayesFull = mean((allts(test)[h,] - outBayesFull$coherentPreds)^2)
-  mseBayesFullMeanSample = mean((allts(test)[h,] - outBayesFull$coherentPredsSample)^2)
-  mseBayesFullMedianSample = mean((allts(test)[h,] - outBayesFull$coherentPredsMedianSample)^2)
-  
-  # Full Bayes Mean and Median Truncated
-  mseBayesFullPosMean = mean((allts(test)[h,] - outBayesFullPositive$coherentPredsTrunc)^2)
-  mseBayesFullPosMedian = mean((allts(test)[h,] - outBayesFullPositive$coherentPredsMedianTrunc)^2)
-  
-  # Bayes Mean and Median
-  mseBayes = mean((allts(test)[h,] - outBayes$coherentPreds)^2)
-  mseBayesMeanSample = mean((allts(test)[h,] - outBayes$coherentPredsSample)^2)
-  mseBayesMedianSample = mean((allts(test)[h,] - outBayes$coherentPredsMedianSample)^2)
-  
-  # Bayes Mean and Median Truncated
-  mseBayesPosMean = mean((allts(test)[h,] - outBayesPositive$coherentPredsTrunc)^2)
-  mseBayesPosMedian = mean((allts(test)[h,] - outBayesPositive$coherentPredsMedianTrunc)^2)
-  
-  # Calculating ES
+  # Taking full samples
   target = allts(test)[h,]
-  esBayesFull = energyScore(target,  outBayesFull$sample %*% t(mSumMatrix))
-  esBayesFullPos = energyScore(target,  outBayesFullPositive$truncSample %*% t(mSumMatrix))
-  esBayes = energyScore(target, outBayes$sample %*% t(mSumMatrix))
-  esBayesPos = energyScore(target, outBayesPositive$truncSample %*% t(mSumMatrix))
+  sampleFull = outBayesFull$sample %*% t(mSumMatrix)
+  sampleFullPos = outBayesFullPositive$truncSample %*% t(mSumMatrix)
+  sample = outBayes$sample %*% t(mSumMatrix)
+  samplePos = outBayesPositive$truncSample %*% t(mSumMatrix)
+  
+  # Calculating Statistics
+  statsBayesFull = calculateStatistics(target,
+                                       outBayesFull$coherentPreds, outBayesFull$coherentPredsMedianSample,
+                                       sampleFull, upperIdx, bottomIdx,
+                                       suffix="_Full")
+  
+  statsBayesFullPos = calculateStatistics(target,
+                                          outBayesFullPositive$coherentPredsTrunc, outBayesFullPositive$coherentPredsMedianTrunc,
+                                          sampleFullPos, upperIdx, bottomIdx,
+                                          suffix="_FullPos")
+  
+  statsBayes = calculateStatistics(target,
+                                   outBayes$coherentPreds, outBayes$coherentPredsMedianSample,
+                                   sample, upperIdx, bottomIdx,
+                                   suffix="")
+  
+  statsBayesPos = calculateStatistics(target,
+                                   outBayesPositive$coherentPredsTrunc, outBayesPositive$coherentPredsMedianTrunc,
+                                   samplePos, upperIdx, bottomIdx,
+                                   suffix="_Pos")
   
   # Checking MinT library implementation with a certain probability
-  mseMint = NaN
+  rmseMint = NaN
   if (runif(1) < testProbability){
     print("Performing MinT on library for double check")
     tic("Running MinT")
@@ -151,11 +156,11 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
                                   parallel=parallel, num.cores=10)
     }
     fcastMintShr = allts(fcastMintShr)[h,]
-    mseMint  <- mean((allts(test)[h,] - fcastMintShr)^2)
+    rmseMint  <- sqrt(mean((allts(test)[h,] - fcastMintShr)^2))
     diff = fcastMintShr - outBayesFull$coherentPreds
     if (norm(diff, "2") > 1.0){
-      print(mseBayesFull)
-      print(mseMint)
+      print(statsBayesFull$rmseMean_Full)
+      print(rmseMint)
       stop("MinT and Bayes result diverged.")
     }
     toc()
@@ -168,27 +173,8 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
     dset <- paste0("largeSynthetic_n",synth_n,"_seed",seed,"_correl", synthCorrel)
   }
   
-  cols = c("dset", "h", "iTest", "fmethod",
-           "mseBase", "mseBottomUp", "mseMinT",
-           
-           "mseBayesFull", "mseBayesFullMeanS", "mseBayesFullMedianS",
-           "mseBayesFullPosMeanS", "mseBayesFullPosMedianS",
-           
-           "mseBayes", "mseBayesMeanS", "mseBayesMedianS",
-           "mseBayesPosMeanS", "mseBayesPosMedianS",
-           
-           "esBayesFull", "esBayesFullPos",
-           "esBayes", "esBayesPos")
-  
-  dataFrame <- data.frame(dset, h, iTest, fmethod,
-                          mseBase, mseBottomUp, mseMint,
-                          mseBayesFull, mseBayesFullMeanSample, mseBayesFullMedianSample,
-                          mseBayesFullPosMean, mseBayesFullPosMedian,
-                          mseBayes, mseBayesMeanSample, mseBayesMedianSample,
-                          mseBayesPosMean, mseBayesPosMedian,
-                          esBayesFull, esBayesFullPos,
-                          esBayes, esBayesPos)
-  
-  colnames(dataFrame) <- cols
+  statistics = c(statsBayesFull, statsBayesFullPos, statsBayes, statsBayesPos)
+  output = list(dset=dset, h=h, iTest=iTest, fmethod=fmethod, rmseBase=rmseBase, rmseBottomUp=rmseBottomUp, rmseMint=rmseMint)
+  dataFrame = data.frame(c(output, statistics))
   return(dataFrame)
 }
