@@ -1,9 +1,12 @@
+list.of.packages <- c("hts", "huge", "SHIP", "matlib", "MASS", "tmvtnorm", "matrixStats", "wordspace")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
 library(hts)
 library(huge) #covariance matrix via glasso
 library(SHIP) #shrinkage of covarianca matrix
 library(matlib)
 library(MASS)
-library(scoringRules)
 library(tmvtnorm)
 library(matrixStats)
 library(wordspace)

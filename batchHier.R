@@ -1,3 +1,7 @@
+list.of.packages <- c("foreach", "doMC")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
 library(foreach)
 library(doMC)
 registerDoMC(10)

@@ -1,3 +1,7 @@
+list.of.packages <- c("foreach", "doMC", "bigmemory", "tictoc")
+new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
+if(length(new.packages)) install.packages(new.packages)
+
 source("reconciliationMethods.R")
 library(foreach)
 library(doMC)
