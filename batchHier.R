@@ -29,7 +29,7 @@ batchHierAndParse <- function(dset, folder, file, seed=0, hs=c(1,2,3,4), models=
   }
 }
 
-batchHierAndParse("infantgts", "results/bayesian_results", "arimaOnly", hs=c(1,2,3,4), models=c("ets"))
+batchHierAndParse("infantgts", "results/bayesian_results", "cluster_run", hs=c(1,2,3,4), models=c("ets", "arima"))
 
 
 
