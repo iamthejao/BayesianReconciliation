@@ -8,14 +8,14 @@ library(doMC)
 registerDoMC(detectCores()-1)
 library(tictoc)
 
-# dset="infantgts"
-# h=1
-# fmethod="ets"
-# iTest=49
-# seed=0
-# testSize=50
+dset="infantgts"
+h=1
+fmethod="ets"
+iTest=49
+seed=0
+testSize=50
 
-#hierRecBayesianExperiment(dset, h, fmethod, iTest)
+hierRecBayesianExperiment(dset, h, fmethod, iTest)
 
 hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=50,
                         seed=0, synth_n=100, synthCorrel=0.5, # Parameters only for synthetic TS
@@ -88,8 +88,8 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   
   # Populating matrix
   for (i in 1:numTs) {
-    fitted[,i] <- outputs[i]$fitted
-    preds[i] <- outputs[i]$preds
+    fitted[,i] <- outputs[[i]]$fitted
+    preds[i] <- outputs[[i]]$preds
   }
   
   # Sum matrix and indices
