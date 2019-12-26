@@ -5,8 +5,6 @@ if(length(new.packages)) install.packages(new.packages)
 source("reconciliationMethods.R")
 library(foreach)
 library(doMC)
-library(bigmemory)
-options(bigmemory.allow.dimnames=TRUE)
 registerDoMC(detectCores()-1)
 library(tictoc)
 
@@ -56,10 +54,10 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   }
   
   # Predictions from model
-  preds <- big.matrix(ncol=numTs, nrow=1, type='double', shared=parallel)
+  preds <- matrix(ncol=numTs, nrow=1)
   
   # Fit from model
-  fitted <- big.matrix(nrow=dim(allTsTrain)[1], ncol = numTs, type='double', shared=parallel)
+  fitted <- matrix(nrow=dim(allTsTrain)[1], ncol = numTs)
   colnames(fitted) <- colnames(allTsTrain)
   
   # Iteration on parallel or single core
@@ -71,7 +69,7 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
     
   print("Starting series fits")
   tic("fit models")
-  foreach (i = 1:numTs) %iter% {
+  outputs <- foreach (i = 1:numTs) %iter% {
     if (parallel==FALSE){
       i #does nothing
       #print(paste("Series num: ", i))
@@ -83,10 +81,16 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
       model <- auto.arima(allTsTrain[,i])
     }
     tmp <- forecast(model, h=h, PI=FALSE)
-    fitted[,i] <- model$fitted 
-    preds[i] <- tmp$mean[h]
+    out = list(fitted=model$fitted, preds=tmp$mean[h])
+    return(out)
   }
   toc()
+  
+  # Populating matrix
+  for (i in 1:numTs) {
+    fitted[,i] <- outputs[i]$fitted
+    preds[i] <- outputs[i]$preds
+  }
   
   # Sum matrix and indices
   mSumMatrix = smatrix(train)
@@ -94,9 +98,7 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
   upperIdx <- setdiff(1:nrow(mSumMatrix),bottomIdx)
   
-  # Recovering matrices from shared mem
-  fitted = as.matrix(fitted)
-  preds = as.matrix(preds)
+  # Recovering residuals
   y = aggts(train)
   residuals = (y - fitted)
   residuals[, upperIdx] = residuals[, upperIdx] * -1
