@@ -1,8 +1,6 @@
 #a simple function to draw synthetic data using for the noise the covariance matrix
 #of the minT paper, sec 3.2 
 
-
-
 simulFourBottom <- function(n){
   library(MASS)
   bottomTs <- 4

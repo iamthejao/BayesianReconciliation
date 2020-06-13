@@ -1,39 +1,161 @@
-list.of.packages <- c("hts", "huge", "SHIP", "matlib", "MASS", "tmvtnorm", "matrixStats", "wordspace")
+list.of.packages <- c("hts", "huge", "SHIP", "matlib", "MASS", "tmvtnorm", "truncnorm", "matrixStats", "wordspace",
+                      "digest", "Rcpp", "corpcor")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
 library(hts)
 library(huge) #covariance matrix via glasso
-library(SHIP) #shrinkage of covarianca matrix
+library(SHIP) #shrinkage of covariance matrix
 library(matlib)
 library(MASS)
 library(tmvtnorm)
+library(truncnorm)
 library(matrixStats)
 library(wordspace)
+library(digest)
+library(Rcpp)
+library(corpcor)
+sourceCpp("cppAlgebra.cpp")
 source("loadTourism.R")
 
-calculateStatistics <- function(target, mean, median, sample, upperIdx, bottomIdx, suffix=""){
-  rmseMean = sqrt(mean((target - mean)^2))
-  rmseMedian = sqrt(mean((target - median)^2))
-  maeMean = mean(abs(target - mean))
-  maeMedian = mean(abs(target - median))
-  esAll = energyScore(target, sample)
-  esUpper = energyScore(target[upperIdx], sample[,upperIdx])
-  esBottom = energyScore(target[bottomIdx], sample[,bottomIdx])
+# Make groups from hierarchical timeseries
+getGroupingsIndex <- function(hierTs){
+  out = tryCatch(
+    {gm=get_groups(hierTs)
+    levels = apply(gm, 1, function(x)length(unique(x)))
+    levelLabels = names(levels)
+    list(levels=levels, labels=levelLabels)},
+    error=function(cond){
+      levels = lapply(hierTs$labels, function(i){length(i)})
+      levelLabels = names(levels)
+      levelLabels[length(levels)] = "Bottom"
+      return(list(levels=levels, labels=levelLabels))})
+  
+  levels = out$levels
+  levelLabels = out$labels
+  curr = 1
+  depth = 1
+  levelIndexes = foreach (i = cumsum(levels)) %do% {
+    serie = curr:i
+    curr = i+1
+    size = length(serie)
+    
+    name = levelLabels[depth]
+    if (name != "Bottom"){
+      name = paste0("Depth", depth, "(", name,")")
+    }
+    levelLabels[depth] = name
+    
+    depth = depth + 1
+    serie
+  }
+  
+  mSumMatrix = smatrix(hierTs)
+  allIdx = 1:ncol(allts(hierTs))
+  bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
+  upperIdx <- setdiff(1:nrow(mSumMatrix),bottomIdx)
+  grp = list()
+  grp["indexes"]=list(c(list(allIdx, upperIdx), levelIndexes))
+  grp["labels"]= list(c(c("All", "Upper"), levelLabels))
+  return(grp)
+}
+
+# Not used
+bootstrapResidual <- function(residuals, sampleSize, mean=NULL, type="independent", seed=0){
+  types <- c("correlated", "independent")
+  if (! (type %in% types)){
+    print("Noise types are:")
+    print(types)
+    stop ("Wrong noiseType supplied." )
+  }
+  
+  set.seed(seed)
+  
+  sampleColumn = function(i){
+    idxs = sample(1:dim(residuals)[1], sampleSize, replace=TRUE)
+    return(residualsShifted[idxs, i])
+  }
+  
+  residualMeans = colMeans(residuals) 
+  shift = as.matrix(rep(1, dim(residuals)[1])) %*% as.vector(residualMeans)
+  residualsShifted = (residuals - shift)
+  
+  if(type=="independent"){
+    t = lapply(1:dim(residuals)[2], sampleColumn)
+    s = t(do.call(rbind, t))
+  } else if(type=="correlated") {
+    idxs = sample(1:dim(residuals)[1], sampleSize, replace=TRUE)
+    s = residualsShifted[idxs, ]
+  } else {
+    stop("smth went wrong in bootstrapResidual")
+  }
+  
+  if (is.null(mean)){
+    return(s)
+  } else {
+    means = (as.matrix(rep(1, sampleSize)) %*% as.vector(mean))
+    return(means+s)
+  }
+}
+
+# Receives a TS object (series), fit, hash and store or read
+# In order to read, function must receive the EXACT same object, including
+# Precision, col and row names, type
+# Otherwise wont recognize
+fitOrReadTS <- function(series, fmethod, location="storage/") {
+  
+  key = digest(series, algo="md5")
+  file = paste0(location, key, "_", fmethod, ".model")
+  
+  FOUND=0
+  if(file.exists(file)){
+    model = readRDS(file)
+    FOUND=1
+  } else {
+    if (fmethod=="ets"){
+      model <- ets(series, additive.only = TRUE)
+    }
+    else if (fmethod=="arima"){
+      model <- auto.arima(series)
+    }
+    saveRDS(model, file=file)
+  }
+  return(list(model=model, flag=FOUND))
+}
+
+# Calculate rmse, mae and es for each group returns a list with the calculations
+calculateStatistics <- function(target, mean, median, sample, groupings, suffix=""){
+  
+  idxs = groupings[['indexes']] #list(1:length(target), upperIdx, bottomIdx)
+  labels = groupings[['labels']] #c("All", "Upper", "Bottom")
   out = list()
-  out[paste0("rmseMean",suffix)] = rmseMean
-  out[paste0("rmseMedian",suffix)] = rmseMedian
-  out[paste0("maeMean",suffix)] = maeMean
-  out[paste0("maeMedian",suffix)] = maeMedian
-  out[paste0("esAll",suffix)] = esAll
-  out[paste0("esUpper",suffix)] = esUpper
-  out[paste0("esBottom",suffix)] = esBottom
+  
+  for(i in 1:length(labels)){
+    
+    label = labels[i]
+    idx = idxs[[i]]
+    
+    rmseMean = sqrt(mean((target[idx] - mean[idx])^2))
+    rmseMedian = sqrt(mean((target[idx] - median[idx])^2))
+    maeMean = mean(abs(target[idx] - mean[idx]))
+    maeMedian = mean(abs(target[idx] - median[idx]))
+    es = energyScore(target[idx], sample[,idx, drop=FALSE])
+    
+    out[paste0("rmseMean",label,suffix)] = rmseMean
+    out[paste0("rmseMedian",label,suffix)] = rmseMedian
+    out[paste0("maeMean",label,suffix)] = maeMean
+    out[paste0("maeMedian",label,suffix)] = maeMedian
+    out[paste0("es",label,suffix)] = es
+  }
   return(out)
 }
 
+# Forces symmetry in a covariance matrix
 makeSymmetric <- function(covariance){
+  
   upperIdx = upper.tri(covariance)
   lowerIdx = lower.tri(covariance)
+  
   if (sum(covariance[upperIdx]) > sum(covariance[lowerIdx])){
     sym = forceSymmetric(covariance, "U")
   } else {
@@ -42,6 +164,11 @@ makeSymmetric <- function(covariance){
   return(sym)
 }
 
+# Fast Vectorized implementation following
+# "Assessing probabilistic forecasts of multivariate quantities, with an application to ensemble predictions of surface winds"
+# https://www.stat.washington.edu/sites/default/files/files/reports/2008/tr537.pdf
+# Double checked against the library scoringRules es_sample function and other implementations
+# Instead of dividing the sample in two I take a second one as a random permutation of the first
 energyScore <- function(target, sample){
   size = dim(sample)[1]
   randPermutation = sample(size)
@@ -57,11 +184,20 @@ energyScore <- function(target, sample){
   normst2 = rowNorms(term2)
   
   score = mean(normst1) - 0.5 * mean(normst2)
-  score2 = NaN#es_sample(y = target, t(sample))
+  
+  #print(mean(normst1))
+  #print(0.5 * mean(normst2))
+  #library(scoringRules)
+  #score2 = es_sample(y = target, t(sample))
+  #print(score)
+  #print(score2)
   #out = list(score=score, score2=score2)
+  
   return(score)#(out)
 }
 
+# Pay attention
+# The sammint and shrmint only make sense if data is centered around 0
 estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labels=NULL){
   if (method=="diagonal"){
     if (is.null(diagonal) == FALSE){
@@ -119,7 +255,58 @@ estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labe
   return(covar)
 }
 
-bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=100000){
+
+# Function to sample from multivariate normals using functions from many packages
+sampleMVN <- function(mean, sigma, sampleSize, positivity=FALSE, seed=0, fromMarginals=FALSE,
+                      truncAlgorithm='gibbs') {
+  
+  set.seed(seed)
+  
+  if (isSymmetric.matrix(sigma) == FALSE){
+    sigma = as.matrix(makeSymmetric(sigma))
+  }
+  
+  if (is.positive.definite(sigma) == FALSE){
+    print("Approximating positive definite")
+    for (i in 12:1){
+      sigma_prime = make.positive.definite(sigma, tol=10^-i)
+      print(paste0("L1 norm diff approximation: ", sum(abs(sigma-sigma_prime))))
+      if (is.positive.definite(sigma_prime)){
+        sigma = sigma_prime
+        break
+      }
+    }
+  }
+  
+  if (positivity){
+    if (fromMarginals == FALSE){
+      sample = tmvtnorm::rtmvnorm(sampleSize, mean=as.numeric(mean), sigma=sigma,
+                                  lower=rep(0, length(mean)), algorithm=truncAlgorithm)
+      # sample = TruncatedNormal::rtmvnorm(n=sampleSize, mu=as.numeric(mean), sigma=sigma, lb=rep(0, length(mean)))
+    } else {
+      sample = do.call(cbind, foreach(i = 1:length(mean)) %dopar% {truncnorm::rtruncnorm(n=sampleSize, a=0, mean=mean[i], sd=sigma[i,i])})
+    }
+  } else {
+    if (fromMarginals == FALSE){
+      sample = MASS::mvrnorm(n=sampleSize, mu=mean, Sigma=sigma)  
+    } else {
+      sample = do.call(cbind, foreach(i = 1:length(mean)) %dopar% {rnorm(n=sampleSize, mean=mean[i], sd=sigma[i,i])})
+    }
+  }
+  return(sample)
+}
+
+# Bayesian Reconciliation function
+bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=10000, noiseType="correlated",
+                       seed=0, kh=1){
+  
+  mCovar = cbind(mCovar)
+  noises <- c("correlated", "independent")
+  if (! (noiseType %in% noises)){
+    print("Noise types are:")
+    print(noises)
+    stop ("Wrong noiseType supplied." )
+  }
   
   # Defining sumMatrix and idxs
   bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
@@ -134,164 +321,103 @@ bayesReconFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSi
   vBottomPreds = preds[bottomIdx]
   vTopPreds = preds[upperIdx]
   
-  # Priors
-  vMeans = mSumMatrix %*% vBottomPreds
-  vPriorMean = vMeans[bottomIdx]
-  vIncoherence = (vTopPreds - vMeans[upperIdx])
+  # BottomUp Prior
+  vPriorMeans = mSumMatrix %*% vBottomPreds
+  vBottomPriorMean = vPriorMeans[bottomIdx]
+  vIncoherence = (vTopPreds - vPriorMeans[upperIdx])
   
-  # Base covariance
+  # Bottom covariance
   mSigmaB = mCovar[bottomIdx, bottomIdx]
   
   # Upper covariance
   mSigmaU = mCovar[upperIdx, upperIdx]
   
-  # Cross covariance
-  mM = mCovar[bottomIdx, upperIdx]
-  mMtr = mCovar[upperIdx, bottomIdx]
-  
   # Update rule
+  # Gain is n_base by n_base
+  # cppMatMult is faster to bigger matrices
+  # Smaller matrices I use %*% since the overhead would not make it worth
   
-  # Gain is n_base by + n_base
-  mP1Gain = ((mSigmaB %*% mAtr) + mM)
-  mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr) + (mA%*%mM) + (mMtr%*%mAtr))
-  mGain = mP1Gain %*% solve(mP2Gain + 1e-6*diag(mP2Gain))
+  if (noiseType=="independent"){
+    
+    # mSigma11 is mSigmaB
+    mP1Gain = cppMatMult(mSigmaB, mAtr) # mSigma12 and mSigma21
+    mP2Gain = (mSigmaU + cppMatMult(cppMatMult(mA, mSigmaB), mAtr)) #mSigma22
+    
+    # # mSigma11 is mSigmaB
+    # mP1Gain = (mSigmaB %*% mAtr) # mSigma12 and mSigma21
+    # mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr)) #mSigma22
+    
+  } else if (noiseType=="correlated") {
+    
+    # Cross covariance
+    mM = mCovar[bottomIdx, upperIdx]
+    mMtr = mCovar[upperIdx, bottomIdx]
+    
+    # Gain is n_base by + n_base
+    # mSigma11 is mSigmaB
+    mP1Gain = (cppMatMult(mSigmaB,mAtr) + mM) # mSigma12 and mSigma21
+    mP2Gain = (mSigmaU + cppMatMult(cppMatMult(mA,mSigmaB),mAtr) + cppMatMult(mA,mM) + cppMatMult(mMtr,mAtr)) #mSigma22
+    
+    # mP1Gain = ((mSigmaB %*% mAtr) + mM) # mSigma12 and mSigma21
+    # mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr) + (mA%*%mM) + (mMtr%*%mAtr)) #mSigma22
+  } else {
+    stop("Wrong noise type in bayesian reconciliation")
+  }
+  
+  # Adjusting for kh
+  # mP1Gain is Cov(Bt+h, Ut+h | It,b)
+  mP1Gain = mP1Gain * kh
+  # mP2Gain is Cov(Ut+h | It,b)
+  mP2Gain = mP2Gain * kh
+  # mSigmaB * kh
+  mSigmaB_kh = mSigmaB * kh
+  
+  # Gain, kh disappear in the Gain formula due to multiplying kh * (1/kh) from the inverse part
+  mGain = cppMatMult(mP1Gain, cppInverse(mP2Gain + 1e-6*diag(mP2Gain)))
+  
+  # Prior Covariance
+  mPriorCovJoint = rbind(cbind(mP2Gain, t(mP1Gain)), cbind(mP1Gain, mSigmaB_kh))
   
   # Posterior mean
-  vPosteriorMean = vPriorMean + mGain %*% vIncoherence
+  vBottomPosteriorMean = vBottomPriorMean + mGain %*% vIncoherence
   
   # Posterior Cov
-  mSigmaBp = mSigmaB - mGain %*% (mA%*%mSigmaB+mMtr)
+  # Same as kh x (mSigmaB - mGain x t(mP1Gain))
+  # in practice is (kh mSigmaB) - mGain (t(kh Cov(Bt+h, Ut+h | It,b)))
+  # kh can be put out
+  mSigmaBPosterior = mSigmaB_kh - cppMatMult(mGain, t(mP1Gain))
   
   # it is not symmetric due to matrix multiplication error accumualating, so we force symmetry
   # and mirror the part with highest sum of variance (the difference should be very low anyway)
-  mSigmaBp = makeSymmetric(mSigmaBp)
-
-  # Coherent predictions
-  vCoherentPreds = mSumMatrix %*% vPosteriorMean
-  mCoherentVariance = mSumMatrix %*% mSigmaBp %*% mSumMatrixT
-  colnames(mCoherentVariance) = colnames(mCovar)
-  rownames(mCoherentVariance) = rownames(mCovar)
+  mSigmaBPosterior = as.matrix(makeSymmetric(mSigmaBPosterior))
   
-  out = list(posteriorMean=vPosteriorMean, posteriorVariance=mSigmaBp,
-             coherentPreds=vCoherentPreds, coherentCovariance=mCoherentVariance)
+  # Coherent predictions and full covariance matrix
+  vCoherentPreds = mSumMatrix %*% vBottomPosteriorMean
+  mCoherentCovariance = cppMatMult(cppMatMult(mSumMatrix, mSigmaBPosterior), mSumMatrixT)
+  mCoherentCovariance = as.matrix(makeSymmetric(mCoherentCovariance))
   
-  if (positivity){
-    
-    # vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
-    #                                sigma=mSigmaBp,
-    #                                lower=rep(0, length(vPosteriorMean)),
-    #                                doComputeVariance=FALSE)$tmean
-    
-    # Mean and median through sampling
-    sample = rtmvnorm(sampleSize, mean=as.numeric(vPosteriorMean), sigma=mSigmaBp,
-                      lower=rep(0, length(vPosteriorMean)), algorithm="rejection")
-    truncMean = colMeans(sample)
-    truncMedian = colMedians(sample)
-    
-    out$posteriorMeanTrunc = truncMean
-    out$posteriorMedianTrunc = truncMedian
-    out$coherentPredsTrunc = mSumMatrix %*% truncMean
-    out$coherentPredsMedianTrunc = mSumMatrix %*% truncMedian
-    out$truncSample = sample
-    
-  } else {
-    
-    sample = mvrnorm(n=sampleSize, mu=vPosteriorMean, Sigma=mSigmaBp)
-    meanSample = colMeans(sample)
-    medianSample = colMedians(sample)
-    
-    out$sample = sample
-    out$posteriorMeanSample = meanSample
-    out$posteriorMedianSample = medianSample
-    out$coherentPredsSample = mSumMatrix %*% meanSample
-    out$coherentPredsMedianSample = mSumMatrix %*% medianSample
-    
-  }
-  return(out)
-}
-
-bayesReconNotFull <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=100000){
+  colnames(mCoherentCovariance) = colnames(mCovar)
+  rownames(mCoherentCovariance) = rownames(mCovar)
   
-  # Defining sumMatrix and idxs
-  bottomIdx <- seq( nrow(mSumMatrix) - ncol(mSumMatrix) +1, nrow(mSumMatrix))
-  upperIdx <- setdiff(1:nrow(mSumMatrix),bottomIdx)
+  out = list(posteriorMean=vBottomPosteriorMean, posteriorVariance=mSigmaBPosterior,
+             coherentPreds=vCoherentPreds, coherentCovariance=mCoherentCovariance,
+             incoherentPreds=preds, priorCovJoint=mPriorCovJoint, priorMeanJoint=vPriorMeans,
+             seed=seed, positivity=positivity, noiseType=noiseType)
   
-  # Defining covariance
-  mA = mSumMatrix[upperIdx, ]
-  mAtr = t(mA)
-  mSumMatrixT = t(mSumMatrix)
+  sample = sampleMVN(vBottomPosteriorMean, mSigmaBPosterior, sampleSize,
+                     positivity=positivity, seed=seed)
   
-  # Taking predictions
-  vBottomPreds = preds[bottomIdx]
-  vTopPreds = preds[upperIdx]
+  # Mean & Median
+  meanSample = colMeans(sample)
+  medianSample = colMedians(sample)
   
-  # Priors
-  vMeans = mSumMatrix %*% vBottomPreds
-  vPriorMean = vMeans[bottomIdx]
-  vIncoherence = (vTopPreds - vMeans[upperIdx])
+  # Returning full bottom up sample
+  out$sample = cppMatMult(sample, mSumMatrixT) #sample %*% t(mSumMatrix)
+  out$posteriorMeanSample = meanSample
+  out$posteriorMedianSample = medianSample
+  out$coherentPredsSample = mSumMatrix %*% meanSample
+  out$coherentPredsMedianSample = mSumMatrix %*% medianSample
   
-  # Base covariance
-  mSigmaB = mCovar[bottomIdx, bottomIdx]
-  
-  # Upper covariance
-  mSigmaU = mCovar[upperIdx, upperIdx]
-  
-  # Update rule
-  # Gain is n_base by + n_base
-  mP1Gain = (mSigmaB %*% mAtr)
-  mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr))
-  mGain = mP1Gain %*% solve(mP2Gain + 1e-6*diag(mP2Gain))
-  
-  # Posterior mean
-  vPosteriorMean = vPriorMean + mGain %*% vIncoherence
-  
-  # Posterior Cov
-  mSigmaBp = mSigmaB - mGain %*% (mSigmaU + mA %*% mSigmaB %*% mAtr) %*% t(mGain)
-  mSigmaBp = makeSymmetric(mSigmaBp)
-  # BOTH LEAD TO SAME RESULT
-  #test <- mSigmaB - mGain %*% mA %*% mSigmaB
-  
-  # Coherent predictions
-  vCoherentPreds = mSumMatrix %*% vPosteriorMean
-  # Coherent predictions
-  vCoherentPreds = mSumMatrix %*% vPosteriorMean
-  mCoherentVariance = mSumMatrix %*% mSigmaBp %*% mSumMatrixT
-  colnames(mCoherentVariance) = colnames(mCovar)
-  rownames(mCoherentVariance) = rownames(mCovar)
-  
-  out = list(posteriorMean=vPosteriorMean, posteriorVariance=mSigmaBp,
-             coherentPreds=vCoherentPreds,
-             coherentCovariance = mCoherentVariance)
-  
-  if (positivity){
-    
-    # vPosteriorMeanTrunc = mtmvnorm(mean=as.numeric(vPosteriorMean),
-    #                                sigma=mSigmaBp,
-    #                                lower=rep(0, length(vPosteriorMean)),
-    #                                doComputeVariance=FALSE)$tmean
-    
-    # Mean and median through sampling
-    sample = rtmvnorm(sampleSize, mean=as.numeric(vPosteriorMean), sigma=mSigmaBp,
-                      lower=rep(0, length(vPosteriorMean)), algorithm="rejection")
-    truncMean = colMeans(sample)
-    truncMedian = colMedians(sample)
-    
-    out$posteriorMeanTrunc = truncMean
-    out$posteriorMedianTrunc = truncMedian
-    out$coherentPredsTrunc = mSumMatrix %*% truncMean
-    out$coherentPredsMedianTrunc = mSumMatrix %*% truncMedian
-    out$truncSample = sample
-  } else {
-    sample = mvrnorm(n=sampleSize, mu=vPosteriorMean, Sigma=mSigmaBp)
-    meanSample = colMeans(sample)
-    medianSample = colMedians(sample)
-    
-    out$sample = sample
-    out$posteriorMeanSample = meanSample
-    out$posteriorMedianSample = medianSample
-    out$coherentPredsSample = mSumMatrix %*% meanSample
-    out$coherentPredsMedianSample = mSumMatrix %*% medianSample
-  }
   return(out)
 }
 
@@ -335,36 +461,6 @@ loadDataset <- function(dset, synth_n=100, synthCorrel=0.5){
   return(hierTs)
 }
 
-hierMse <- function (htsPred, htsActual, h) {
-  #receives two hts objects, containing  forecast and actual value.
-  #computes the mse for the whole hierarchy.
-  mse <- mean  ( (allts(htsPred)[h,] - allts(htsActual)[h,])^2 )
-  return (mse)
-}
-
-#The buReconcile function computes the bu prediction given the predictions (1 x tot time series) and the S matrix
-#(tot time series X bottom time series)
-#predsAllTs is a flag: is set to true, the input preds contains predictions for all the hierarchy
-#and the function retrieves the bottom series; if set to false, this is not needed
-#as preds only contains only bottom time series
-buReconcile <- function (preds,S, predsAllTs = FALSE) {
-  bottomPreds <- preds
-  if (predsAllTs) {
-    #retrieves the bottom prediction from all predictions
-    upperIdx <- 1 : (nrow(S) - ncol(S))
-    bottomIdx <- setdiff (1:nrow(S), upperIdx)
-    bottomPreds <- preds [,bottomIdx]
-  }
-  
-  buPreds <- preds
-  
-  #nrow(S) is the total number of time series
-  for (i in 1:nrow(S)){
-    buPreds[i] <- S[i,] %*% bottomPreds
-  }
-  return (buPreds)
-}
-
 #check the calibration of the prediction interval with coverage (1-currentAlpha)
 checkCalibration <- function(h, preds,sigmas,htsActual,coverage){
   stdQuant <- abs(qnorm((1-coverage)/2))
@@ -377,134 +473,3 @@ checkCalibration <- function(h, preds,sigmas,htsActual,coverage){
   }
   return (mean(included))
 }
-
-# #covariance can be "diagonal", "sam" or "glasso"
-# # old function for reconciliation, leaving here to check if I forget something
-# old_bayesReconNotFull2 <- function (preds, S, mCovar){
-#   
-#   bottomIdx <- seq( nrow(S) - ncol(S) +1, nrow(S))
-#   upperIdx <- setdiff(1:nrow(S),bottomIdx)
-#   
-#   #prior mean and covariance of the bottom time series
-#   priorMean <- preds[bottomIdx]
-#   Y_vec <- preds[upperIdx]
-#   
-#   #prior covariance for the bottom time series
-#   priorCov = mCovar[bottomIdx, bottomIdx]
-#   
-#   #covariance for the upper time series
-#   Sigma_y = mCovar[upperIdx, upperIdx]
-#   
-#   #if upperIdx contains a single row, R behaves oddily; hence we need to manually manage that case.
-#   if (length(upperIdx)==1){
-#     A <- cbind(S[upperIdx,])
-#   }
-#   else {
-#     A <- t(S[upperIdx,])
-#   }
-#   
-#   M <- ncol ( t(A) %*% priorCov %*% A + Sigma_y )
-#   G <- priorCov %*% A %*%
-#     solve (t(A) %*% priorCov %*% A + Sigma_y + 1e-6*diag(M))
-#   
-#   postMean <- priorMean + G  %*%
-#     (Y_vec - t(A) %*% priorMean)
-#   bayesPreds <- buReconcile(postMean, S, predsAllTs = FALSE)
-#   
-#   posteriorCov = NULL#priorCov - G %*% (Sigma_y + A %*% )
-#   
-#   out = list(posteriorMean=postMean, posteriorVariance=posteriorCov, coherentPreds=bayesPreds)
-#   return(bayesPreds)
-# }
-# 
-# #covariance can be "diagonal", "sam" or "glasso"
-# # Old function for reconciliation
-# old_bayesRecon <- function (preds, residuals, S, covariance="shr", sigma=NULL){
-#   bottomIdx <- seq( nrow(S) - ncol(S) +1, nrow(S))
-#   upperIdx <- setdiff(1:nrow(S),bottomIdx)
-#   
-#   #prior mean and covariance of the bottom time series
-#   priorMean <- preds[bottomIdx]
-#   Y_vec <- preds[upperIdx]
-#   
-#   
-#   #prior covariance for the bottom time series
-#   bottomVar <- sigma[bottomIdx]^2
-#   bottomResiduals <- residuals[,bottomIdx]
-#   if (covariance=="diagonal"){
-#     priorCov <- diag(bottomVar)
-#   }
-#   else if (covariance=="sam"){
-#     #the covariances are the covariances of the time series
-#     #the variances are the variances of the forecasts, hence the variances of the residuals
-#     priorCov <- cov(bottomResiduals)
-#   }
-#   else if (covariance=="glasso"){
-#     #the covariances are the covariances of the time series
-#     #the variances are the variances of the forecasts, hence the variances of the residuals
-#     out.glasso <- huge(bottomResiduals, method = "glasso", cov.output = TRUE)
-#     out.select <- huge.select(out.glasso, criterion = "ebic")
-#     priorCov <- out.select$opt.cov
-#   }
-#   else if (covariance=="shr"){
-#     sigmaDiag <- diag(bottomVar)
-#     priorCov <-  shrink.estim(bottomResiduals, tar=build.target(bottomResiduals,type="D"))[[1]]
-#   }
-#   
-#   upperVar <- sigma[upperIdx]^2
-#   #covariance for the upper time series; we need managing separately the case where only a single time series is present
-#   #as diag will try to create a matrix of size upperVar instead.
-#   upperResiduals <- residuals[,upperIdx]
-#   if (length(upperIdx)==1) {
-#     Sigma_y <- upperVar
-#   }
-#   
-#   else if (covariance=="diagonal"){
-#     Sigma_y <- diag(upperVar)
-#   }
-#   #if we only one upper time series, there is no covariance matrix to be estimated. 
-#   else if (covariance=="glasso") {
-#     #get variance and covariance of the residuals
-#     out.glasso <- huge(upperResiduals, method = "glasso", cov.output = TRUE)
-#     out.select <- huge.select(out.glasso, criterion = "ebic")
-#     Sigma_y <- out.select$opt.cov
-#   }
-#   else if (covariance=="sam") {
-#     #get variance and covariance of the residuals
-#     Sigma_y <- cov(upperResiduals)
-#   }
-#   else if (covariance=="shr") {
-#     sigma_y_diag <- diag(upperVar)
-#     Sigma_y <-  shrink.estim(upperResiduals, tar=build.target(upperResiduals,type="D"))[[1]]
-#   }
-#   #==updating
-#   #A explains how to combin the bottom series in order to obtain the
-#   # upper series
-#   
-#   #if upperIdx contains a single row, R behaves oddily; hence we need to manually manage that case.
-#   if (length(upperIdx)==1){
-#     A <- cbind(S[upperIdx,])
-#   }
-#   else {
-#     A <- t(S[upperIdx,])
-#   }
-#   
-#   M <- ncol ( t(A) %*% priorCov %*% A + Sigma_y )
-#   correl <- priorCov %*% A %*%
-#     solve (t(A) %*% priorCov %*% A + Sigma_y + 1e-6*diag(M))
-#   
-#   postMean <- priorMean + correl  %*%
-#     (Y_vec - t(A) %*% priorMean)
-#   bayesPreds <- buReconcile(postMean, S, predsAllTs = FALSE)
-#   return(bayesPreds)
-# }
-
-# rowVars <- function(x, ...) {
-#   rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
-# }
-# 
-# colVars <- function(x, ...) {
-#   x = t(x)
-#   tmp = rowSums((x - rowMeans(x, ...))^2, ...)/(dim(x)[2] - 1)
-#   return(t(tmp))
-# }
