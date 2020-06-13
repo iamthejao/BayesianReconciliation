@@ -78,7 +78,21 @@ For the `syntheticLarge` case, the covariance matrix of the noise is set as in t
 The reconciliation results are saved scattered in the folder `results` according to the batch split used with the name following the pattern `{h}_{dset}_{fmethod}_{from_split}to{to_split}.csv` as in `2_tourism_ets_28to35`
 The file shows the mae, rmse and energy score for many combinations of groups of the hierarchy (All, Upper, Bottom, etc) and reconciliation schemes (BottomUp, pMinT, LG) and the Base forecasts.
 
-## pMinT and LG
+## Running batch experiment
+
+The experiments can be ran all at once (or more easily parallelized) by running the batch experiment script which implements the calls to the function `hierRecBayesianExperiment`.
+
+```R
+ Rscript batchHier.R -d infantgts -m arima -p "results/" -k true
+```
+
+For help with the arguments:
+
+```R
+Rscript batchHier.R --help
+```
+
+## pMinT and LG reconciliation function
 
 The algorithm is implemented in `bayesRecon` inside `reconciliationMethods.R`. It can be used as following:
 
