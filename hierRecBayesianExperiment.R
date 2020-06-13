@@ -5,6 +5,7 @@ if(length(new.packages)) install.packages(new.packages)
 source("reconciliationMethods.R")
 library(foreach)
 library(doMC)
+library(forecast)
 registerDoMC(floor(detectCores()/2))
 library(tictoc)
 
@@ -12,22 +13,23 @@ print(paste0("CPUS Available: ", detectCores()))
 print(paste0("CPUS Used: ", floor(detectCores()/2)))
 
 # Set of variables usefull for debugging
-dset = 'tourism'
-synth_n = 10
-synthCorrel = 0.5
-h = 2
-fmethod = 'ets'
-iTest = 18
-seed = 0
-savePredictions=FALSE
-saveSamples = FALSE
-runPositive = FALSE
-enforceKhOne = FALSE
-sampleSize = 100000
+
+# dset = 'tourism'
+# synth_n = 10
+# synthCorrel = 0.5
+# h = 2
+# fmethod = 'ets'
+# iTest = 18
+# seed = 0
+# savePredictions=FALSE
+# saveSamples = FALSE
+# runPositive = FALSE
+# enforceKhOne = FALSE
+# sampleSize = 100000
 
 hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=50,
                         seed=0, synth_n=100, synthCorrel=0.5, # Parameters only for synthetic TS
-                        testProbability=0.10,
+                        testProbability=0.0,
                         savePredictions=TRUE, saveSamples=FALSE,
                         runPositive=FALSE, enforceKhOne=FALSE, sampleSize=100000) # Reasonable sampling point according to convergence test
   {

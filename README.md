@@ -1,45 +1,107 @@
-# BayesianReconciliation
+# Reconciling hierarchical forecasts via Bayes' rule
 
-Package dependence should be handled automatically inside.
+This package implements  the Bayesian reconciliation of hierarchical forecasts.
 
-Batch run:
-
-The experiments can be run in batch by using the script batchHier.R
-
-Rscript batchHier.R -d infantgts -m arima -p "results/" -k true
-
-For help with the arguments:
-Rscript batchHier.R --help
+In particular the function `hierRecBayesianExperiment` reconciles forecasts for hierachical / grouped time series.
+The reconciliation algorithm is implemented in `bayesRecon` in reconciliationMethods.R
 
 
-Single run:
+## Required packages for reproducing the paper experiments
 
-Most important function to run the experiments is hierRecBayesianExperiment.R
+Required packages should be automatically installed by the commands in the beggining of the scripts.
 
+* `forecast` (produces base forecasts with either auto.arima or ets)
+* `hts`   (algorithms for reconciling hierarchical time series, including minT)
+* `huge`, `SHIP`, `corpcor` (covariance matrix estimation)
+* `matlib`, `matrixStats`, `wordspace` (collection of matrix functions and statistics)
+* `MASS`, `tmvtnorm`, `truncnorm` (truncated normal and other density functions)
+* `Rcpp` (R and C++ interface)
+* `optparse` (argument option parser)
+
+
+## Choice of data sets and base forecasts
+Two real data sets can be used: `infantgts` (available from `hts`) or `tourism` (raw data available from [https://robjhyndman.com/publications/mint/](https://robjhyndman.com/publications/mint/). The csv file of tourism is available in this repository. When the   `tourism` data set is selected, function `loadTourism.R` reads the csv file and builds the hierarchy.
+
+Alternatively, the data can be synthetically generated:
+* from a hierarchy having two bottom time series and one top time series  (`synthetic`).
+* from a hierarchy having four bottom time series, two intermediate and one top time series  (`syntheticLarge`).
+
+The base forecasts can be created using either `auto.arima` or `ets`, both available from `forecast`.
+
+## Examples
+
+```R
+ hierRecBayesianExperiment(dset="infantgts", fmethod="ets", h=1, iTest=1) 
+ hierRecBayesianExperiment(dset="infantgts", fmethod="arima", h=1, iTest=2) 
+ hierRecBayesianExperiment(dset="tourism", fmethod="ets", h=2, iTest=1)
+ hierRecBayesianExperiment(dset="tourism", fmethod="arima", h=1) 
+```
+
+
+Examples with generated data sets:
+```R
+ hierRecBayesianExperiment(dset="synthetic", h=1, synth_n=100, synthCorrel=0.2) # hierarchy is 2-1 
+ hierRecBayesianExperiment(dset="syntheticLarge", h=3, synth_n=300)  # hierarchy is 4-2-1 
+```
 Arguments:
 
-dset: (infantgts, tourism, synthetic, syntheticLarge)
+* `dset` : can be either `infantgts`, `tourism`, `synthetic` or `syntheticLarge` 
 
-h: steps ahead prediction
+* `fmethod` : method for generating the base forecasts: it can be either `arima` or `ets`. Default: 'ets'.
 
-fmethod: (arima, ets)
+* `h`: forecast horizon for which we reconcile the forecasts. We use between 1 and 4 in the experiments of the paper.
+Default: 1.
 
-iTest: used for train/test split
+* `iTest`: controls how the split the data between train and test. The training set contains the data from the first observation up to the observation in position (length(timeSeries) - h - (iTest - 1)). This is useful for parallelizing the experiments. Admissible values are between 1 and 45. Default: 1.
 
-Seed
+An additional set of parameters applies to set of experiments with synthetic time series.
 
-synth_n: size in timesteps of synthetic large dataset
+* `seed` : seed (default:0)
 
-synthCorrel: correlation for synthetic dataset
+* `synth_n` : length of the generated time series. Default: 100.
 
-testProbability: frequency of MinT check
+* `synthCorrel` : correlation of the noise affecting the bottom time series. Applies only to the `synthetic` case; default: 0.5.
+For the `syntheticLarge` case, the covariance matrix of the noise is set as in the MinT paper (Wickramasuriya et al., 2019)
 
-savePredictions
+* `testProbability` : frequency on which results are checked against MinT (mostly for debug). default: 0.0.
 
-saveSamples
+* `savePredictions` : save predictions on prediction folder. default: TRUE
 
-runPositive
+* `saveSamples` : save samples on sample folder. It can be heavy according to sampleSize x hierarchy size. default: FALSE
 
-enforceKhOne: kh=1 or kh=h
+* `enforceKhOne` : kh=1 (TRUE) or kh=h (FALSE) experiment. default: FALSE
 
-sampleSize
+* `sampleSize` : Sample size for sampled mean, median, ES, etc. default: 100000
+
+* `runPositive` : Apply positivity constraint and samples from truncated normal (gibbs sampling). This makes the algorithm heavier and should be studied for future work. default: FALSE.
+
+The reconciliation results are saved scattered in the folder `results` according to the batch split used with the name following the pattern `{h}_{dset}_{fmethod}_{from_split}to{to_split}.csv` as in `2_tourism_ets_28to35`
+The file shows the mae, rmse and energy score for many combinations of groups of the hierarchy (All, Upper, Bottom, etc) and reconciliation schemes (BottomUp, pMinT, LG) and the Base forecasts.
+
+## pMinT and LG
+
+The algorithm is implemented in `bayesRecon` inside `reconciliationMethods.R`. It can be used as following:
+
+```R
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="correlated")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="independent")
+```
+
+* `preds` : are the h-step predictions of each node
+
+* `mSumMatrix` : is the hierarchy sum matrix
+
+* `mCovar` : is the hierarchy residuals (estimated) covariance matrix
+
+* `positivity` : positivity constraint, predictions are acquired from tmvn sampled mean. default: FALSE
+
+* `sampleSize` : sample size. default: 100000
+
+* `noiseType` : can be either `correlated` for pMinT or `independent` for Linear Gaussian (LG).
+
+* `kh`: should be either 1 or h.
+
+## Analyzing the results
+The previous functions save the raw results in a csv file within the `results/` directory. The results are then analysed using a python notebook provided along with the R code.
+
+

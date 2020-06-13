@@ -156,6 +156,7 @@ makeSymmetric <- function(covariance){
   upperIdx = upper.tri(covariance)
   lowerIdx = lower.tri(covariance)
   
+  # This should not make any difference since the matrix is (or very close to) symmetric
   if (sum(covariance[upperIdx]) > sum(covariance[lowerIdx])){
     sym = forceSymmetric(covariance, "U")
   } else {
@@ -184,20 +185,13 @@ energyScore <- function(target, sample){
   normst2 = rowNorms(term2)
   
   score = mean(normst1) - 0.5 * mean(normst2)
-  
-  #print(mean(normst1))
-  #print(0.5 * mean(normst2))
-  #library(scoringRules)
-  #score2 = es_sample(y = target, t(sample))
-  #print(score)
-  #print(score2)
-  #out = list(score=score, score2=score2)
-  
-  return(score)#(out)
+  return(score)
 }
 
 # Pay attention
 # The sammint and shrmint only make sense if data is centered around 0
+# It is the same method used in MinT and that is why it is implemented here
+# So the results would match exactly
 estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labels=NULL){
   if (method=="diagonal"){
     if (is.null(diagonal) == FALSE){
@@ -229,7 +223,7 @@ estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labe
     }
     else{
       # Both expressions lead to the same result
-      mTar = build.target(residuals,type="D")#diag(apply(residuals, 2, var))  
+      mTar = build.target(residuals,type="D")
     }
     covar = shrink.estim(residuals, tar=mTar)[[1]]
   }
@@ -254,7 +248,6 @@ estimateCovariance <- function(residuals, method="diagonal", diagonal=NULL, labe
   }
   return(covar)
 }
-
 
 # Function to sample from multivariate normals using functions from many packages
 sampleMVN <- function(mean, sigma, sampleSize, positivity=FALSE, seed=0, fromMarginals=FALSE,
@@ -387,8 +380,8 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=1
   # kh can be put out
   mSigmaBPosterior = mSigmaB_kh - cppMatMult(mGain, t(mP1Gain))
   
-  # it is not symmetric due to matrix multiplication error accumualating, so we force symmetry
-  # and mirror the part with highest sum of variance (the difference should be very low anyway)
+  # it is not symmetric due to matrix multiplication error accumulating, so we force symmetry
+  # and mirror the part with highest sum of variance (the difference should be close to zero anyway)
   mSigmaBPosterior = as.matrix(makeSymmetric(mSigmaBPosterior))
   
   # Coherent predictions and full covariance matrix
