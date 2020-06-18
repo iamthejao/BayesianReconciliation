@@ -40,7 +40,6 @@ The base forecasts can be created using either `auto.arima` or `ets`, both avail
 
 Examples with generated data sets:
 ```R
- hierRecBayesianExperiment(dset="synthetic", h=1, synth_n=100, synthCorrel=0.2) # hierarchy is 2-1 
  hierRecBayesianExperiment(dset="syntheticLarge", h=3, synth_n=300)  # hierarchy is 4-2-1 
 ```
 Arguments:
@@ -94,7 +93,7 @@ The algorithm is implemented in `bayesRecon` inside `reconciliationMethods.R`. I
 
 ```R
 bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, method="pmint")
-bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="lg")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, method="lg")
 ```
 
 * `preds` : are the h-step predictions of each node
@@ -110,6 +109,6 @@ bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="lg")
 * `kh`: should be either 1 or h.
 
 ## Analyzing the results
-The previous functions save the raw results in a csv file within the `results/` directory. The results are then analysed using a python notebook provided along with the R code.
+The previous functions save the raw results in a csv file within the `results/` directory. The results are then analysed using a python notebook provided along with the R code.s
 
 
