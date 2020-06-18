@@ -92,8 +92,8 @@ Rscript batchHier.R --help
 The algorithm is implemented in `bayesRecon` inside `reconciliationMethods.R`. It can be used as following:
 
 ```R
-bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, method="pmint")
-bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, method="lg")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, reconType="pmint")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, reconType="lg")
 ```
 
 * `preds` : are the h-step predictions of each node
