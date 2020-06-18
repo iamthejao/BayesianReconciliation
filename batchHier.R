@@ -7,7 +7,7 @@ library(optparse)
 # Here it starts the main
 parser = OptionParser()
 parser <- add_option(parser, c("-d", "--dataset"), type="character", default=NULL,
-                     help="Insert dataset name (infantgts, tourism, synthetic, syntheticLarge)",
+                     help="Insert dataset name (infantgts, tourism, syntheticLarge)",
                      metavar="string")
 
 parser <- add_option(parser, c("-s", "--hstep"), type="integer", default=NULL,
@@ -30,8 +30,8 @@ parser <- add_option(parser, c("-l", "--size"), type="integer", default=100,
                      help="Synthetic large number of timesteps",
                      metavar="numeric")
 
-parser <- add_option(parser, c("-c", "--corr"), type="double", default=0.5,
-                     help="Synthetic small timeseries correlation",
+parser <- add_option(parser, c("-r", "--run"), type="integer", default=0,
+                     help="Random seed used for run.",
                      metavar="numeric")
 
 parser <- add_option(parser, c("-p", "--path"), type="character", default="results/bayesian_results",
@@ -50,8 +50,8 @@ print(parsed)
 source("hierRecBayesianExperiment.R")
 library(foreach)
 
-batchHierAndParse <- function(dset, h, model, iTestFrom=1, iTestTo=50, seed=0, folder="results/bayesian_results_kh_basekh",
-                              synth_n=100, synthCorrel=0.5, enforceKhOne=TRUE){
+batchHierAndParse <- function(dset, h, model, iTestFrom=1, iTestTo=50, seed=0, folder="results/",
+                              synth_n=100, enforceKhOne=TRUE){
   
   # Guaranteeing arguments are parsed correctly
   limit = 50 - h + 1
@@ -60,12 +60,9 @@ batchHierAndParse <- function(dset, h, model, iTestFrom=1, iTestTo=50, seed=0, f
     return(NULL)
   }
   
-  if (dset=="synthetic"){
-    dset_name <- paste0(dset,"_correl",synthCorrel,"_seed",seed)
-  } else if (dset=="syntheticLarge") {
-    dset_name <- paste0("largeSynthetic_n",synth_n,"_seed",seed)
-  } else {
-    dset_name = dset
+  dset_name = dset
+  if (dset=="syntheticLarge") {
+    dset_name <- paste0(dset, "_n", synth_n, "_seed", seed)
   }
   
   filename <- paste(folder, "/",h,"_", dset_name,"_",model,"_", iTestFrom,"to", iTestTo,".csv",sep="")
@@ -75,23 +72,13 @@ batchHierAndParse <- function(dset, h, model, iTestFrom=1, iTestTo=50, seed=0, f
   for (iTest in (iTestFrom:iTestTo)) {
     
     print(paste0("iTest: ", iTest))
-    
-    # Probabiliy of calling MinT function to actually checking if the results match (and save)
-    if (dset != 'tourism'){
-      p = 0.05
-    } else {
-      p = 0.01
-    }
-    
-    print(paste0("Prob of checking MinT: ",p))
-    
+
     # Calculate
-    dataFrame = hierRecBayesianExperiment(dset, h, fmethod=model, iTest=iTest, seed=seed, testProbability=p,
-                                          savePredictions=TRUE, synth_n=synth_n, synthCorrel=synthCorrel,
+    dataFrame = hierRecBayesianExperiment(dset, h, fmethod=model, iTest=iTest, seed=seed,
+                                          savePredictions=TRUE, synth_n=synth_n,
                                           saveSamples=FALSE, enforceKhOne=enforceKhOne)
-    # Collect garbage
     gc()
-    
+      
     # Write
     writeNames <- TRUE
     if(file.exists(filename)){
@@ -107,12 +94,12 @@ if (is.null(parsed$hstep)){
   for(h in 1:4){
     batchHierAndParse(parsed$dataset, h, parsed$method,
                       parsed$init, parsed$end,
-                      synth_n=parsed$size, synthCorrel=parsed$corr,
+                      synth_n=parsed$size,
                       folder=parsed$path, enforceKhOne=parsed$khone, seed=123321)
   }
 }else{
   batchHierAndParse(parsed$dataset, parsed$hstep, parsed$method,
                     parsed$init, parsed$end,
-                    synth_n=parsed$size, synthCorrel=parsed$corr,
+                    synth_n=parsed$size,
                     folder=parsed$path, enforceKhOne=parsed$khone)
 }

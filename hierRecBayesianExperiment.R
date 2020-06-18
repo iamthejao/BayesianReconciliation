@@ -28,8 +28,7 @@ print(paste0("CPUS Used: ", floor(detectCores()/2)))
 # sampleSize = 100000
 
 hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=50,
-                        seed=0, synth_n=100, synthCorrel=0.5, # Parameters only for synthetic TS
-                        savePredictions=TRUE, saveSamples=FALSE,
+                        seed=0, synth_n=100, savePredictions=TRUE, saveSamples=FALSE,
                         enforceKhOne=FALSE, sampleSize=100000) # Reasonable sampling point according to convergence test
   {
   
@@ -42,10 +41,8 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   alpha <- 0.2
   
   # Update dset name to full specification in case of synthetic data
-  if (dset=="synthetic"){
-    dset <- paste0(dset,"_correl",synthCorrel,"_seed",seed)
-  } else if (dset=="syntheticLarge") {
-    dset <- paste0("largeSynthetic_n",synth_n,"_seed",seed)
+  if (dset=="syntheticLarge") {
+    dset <- paste0(dset, "_n", synth_n)
   }
   
   # Printing experiment
@@ -59,7 +56,6 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   print(paste0("SEED: ",seed))
   print(paste0("SAVE PREDS: ",savePredictions))
   print(paste0("SAVE SAMPLES: ",saveSamples))
-  print(paste0("RUN POSITIVITY CONSTRAINT: ",runPositive))
   print("=========================")
   print("")
 
@@ -253,7 +249,7 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   
   # Saving outputs in a dataframe and sending out
   statistics = c(statsBase, statsBottomUp, statsBayesCorr, statsBayesIndep)
-  output = list(dset=dset, h=h, iTest=iTest, fmethod=fmethod, khOne=enforceKhOne)
+  output = list(dset=dset, h=h, iTest=iTest, fmethod=fmethod, khOne=enforceKhOne, seed=seed)
   dataFrame = data.frame(c(output, statistics))
   
   return(dataFrame)

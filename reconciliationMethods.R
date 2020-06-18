@@ -377,7 +377,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmi
 
 loadDataset <- function(dset, synth_n=100, synthCorrel=0.5){
   
-  feasibleDset <- c("infantgts", "tourism", "synthetic", "syntheticLarge")
+  feasibleDset <- c("infantgts", "tourism", "syntheticLarge")
   if (! (dset %in% feasibleDset)){
     print("feasible dset are:")
     print(feasibleDset)
@@ -390,25 +390,10 @@ loadDataset <- function(dset, synth_n=100, synthCorrel=0.5){
   else if (dset=="infantgts"){
     hierTs <- infantgts
   }
-  else if (dset=="synthetic"){
-    source("drawSmallHierarchy.R")
-    #we generate the hierarchy with two bottom time series
-    #training and the test
-    
-    #synth_n=100
-    #synthCorrel=0.5
-    #h=1
-    
-    listSynth <- artificialTs(n=synth_n + h, correl = synthCorrel)
-    synthTs <- listSynth$bottomTs
-    corrB2_U <- listSynth$corrB2_U
-    y=ts(synthTs, frequency = 1)
-    hierTs <- hts(y, bnames = colnames(y))
-  }
   else if (dset=="syntheticLarge"){
     source("drawLargeHierarchy.R")
     #we generate the hierarchy with *four* bottom time series
-    synthTs <- simulFourBottom(n=synth_n)
+    synthTs <- simulFourBottom(n=synth_n, noisy=TRUE, factor=2)
     y=ts(synthTs, frequency = 1)
     hierTs <- hts(y, bnames = colnames(y), characters=c(1,1))
   }
