@@ -60,44 +60,6 @@ getGroupingsIndex <- function(hierTs){
   return(grp)
 }
 
-# Not used
-bootstrapResidual <- function(residuals, sampleSize, mean=NULL, type="independent", seed=0){
-  types <- c("correlated", "independent")
-  if (! (type %in% types)){
-    print("Noise types are:")
-    print(types)
-    stop ("Wrong noiseType supplied." )
-  }
-  
-  set.seed(seed)
-  
-  sampleColumn = function(i){
-    idxs = sample(1:dim(residuals)[1], sampleSize, replace=TRUE)
-    return(residualsShifted[idxs, i])
-  }
-  
-  residualMeans = colMeans(residuals) 
-  shift = as.matrix(rep(1, dim(residuals)[1])) %*% as.vector(residualMeans)
-  residualsShifted = (residuals - shift)
-  
-  if(type=="independent"){
-    t = lapply(1:dim(residuals)[2], sampleColumn)
-    s = t(do.call(rbind, t))
-  } else if(type=="correlated") {
-    idxs = sample(1:dim(residuals)[1], sampleSize, replace=TRUE)
-    s = residualsShifted[idxs, ]
-  } else {
-    stop("smth went wrong in bootstrapResidual")
-  }
-  
-  if (is.null(mean)){
-    return(s)
-  } else {
-    means = (as.matrix(rep(1, sampleSize)) %*% as.vector(mean))
-    return(means+s)
-  }
-}
-
 # Receives a TS object (series), fit, hash and store or read
 # In order to read, function must receive the EXACT same object, including
 # Precision, col and row names, type
@@ -290,15 +252,15 @@ sampleMVN <- function(mean, sigma, sampleSize, positivity=FALSE, seed=0, fromMar
 }
 
 # Bayesian Reconciliation function
-bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=10000, noiseType="correlated",
+bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmint",
                        seed=0, kh=1){
   
   mCovar = cbind(mCovar)
-  noises <- c("correlated", "independent")
-  if (! (noiseType %in% noises)){
-    print("Noise types are:")
-    print(noises)
-    stop ("Wrong noiseType supplied." )
+  methods <- c("pmint", "lg")
+  if (! (method %in% methods)){
+    print("method types are:")
+    print(methods)
+    stop ("Wrong method supplied." )
   }
   
   # Defining sumMatrix and idxs
@@ -330,7 +292,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=1
   # cppMatMult is faster to bigger matrices
   # Smaller matrices I use %*% since the overhead would not make it worth
   
-  if (noiseType=="independent"){
+  if (method=="lg"){
     
     # mSigma11 is mSigmaB
     mP1Gain = cppMatMult(mSigmaB, mAtr) # mSigma12 and mSigma21
@@ -340,11 +302,11 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=1
     # mP1Gain = (mSigmaB %*% mAtr) # mSigma12 and mSigma21
     # mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr)) #mSigma22
     
-  } else if (noiseType=="correlated") {
+  } else if (method=="pmint") {
     
     # Cross covariance
-    mM = mCovar[bottomIdx, upperIdx]
-    mMtr = mCovar[upperIdx, bottomIdx]
+    mM = -1 * mCovar[bottomIdx, upperIdx]
+    mMtr = -1 * mCovar[upperIdx, bottomIdx]
     
     # Gain is n_base by + n_base
     # mSigma11 is mSigmaB
@@ -354,7 +316,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=1
     # mP1Gain = ((mSigmaB %*% mAtr) + mM) # mSigma12 and mSigma21
     # mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr) + (mA%*%mM) + (mMtr%*%mAtr)) #mSigma22
   } else {
-    stop("Wrong noise type in bayesian reconciliation")
+    stop("Wrong method in bayesian reconciliation")
   }
   
   # Adjusting for kh
@@ -395,10 +357,9 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, positivity=FALSE, sampleSize=1
   out = list(posteriorMean=vBottomPosteriorMean, posteriorVariance=mSigmaBPosterior,
              coherentPreds=vCoherentPreds, coherentCovariance=mCoherentCovariance,
              incoherentPreds=preds, priorCovJoint=mPriorCovJoint, priorMeanJoint=vPriorMeans,
-             seed=seed, positivity=positivity, noiseType=noiseType)
+             seed=seed, method=method)
   
-  sample = sampleMVN(vBottomPosteriorMean, mSigmaBPosterior, sampleSize,
-                     positivity=positivity, seed=seed)
+  sample = sampleMVN(vBottomPosteriorMean, mSigmaBPosterior, sampleSize, seed=seed)
   
   # Mean & Median
   meanSample = colMeans(sample)
@@ -452,17 +413,4 @@ loadDataset <- function(dset, synth_n=100, synthCorrel=0.5){
     hierTs <- hts(y, bnames = colnames(y), characters=c(1,1))
   }
   return(hierTs)
-}
-
-#check the calibration of the prediction interval with coverage (1-currentAlpha)
-checkCalibration <- function(h, preds,sigmas,htsActual,coverage){
-  stdQuant <- abs(qnorm((1-coverage)/2))
-  included <- vector(length = length(preds))
-  actual <- allts(htsActual)[h,]
-  for (ii in seq_along(preds)){
-    upper <- preds[ii] + stdQuant * sigmas[ii]
-    lower <- preds[ii] - stdQuant * sigmas[ii]
-    included[ii] <- (actual[ii] > lower) &  (actual[ii] < upper)
-  }
-  return (mean(included))
 }

@@ -63,8 +63,6 @@ An additional set of parameters applies to set of experiments with synthetic tim
 * `synthCorrel` : correlation of the noise affecting the bottom time series. Applies only to the `synthetic` case; default: 0.5.
 For the `syntheticLarge` case, the covariance matrix of the noise is set as in the MinT paper (Wickramasuriya et al., 2019)
 
-* `testProbability` : frequency on which results are checked against MinT (mostly for debug). default: 0.0.
-
 * `savePredictions` : save predictions on prediction folder. default: TRUE
 
 * `saveSamples` : save samples on sample folder. It can be heavy according to sampleSize x hierarchy size. default: FALSE
@@ -72,8 +70,6 @@ For the `syntheticLarge` case, the covariance matrix of the noise is set as in t
 * `enforceKhOne` : kh=1 (TRUE) or kh=h (FALSE) experiment. default: FALSE
 
 * `sampleSize` : Sample size for sampled mean, median, ES, etc. default: 100000
-
-* `runPositive` : Apply positivity constraint and samples from truncated normal (gibbs sampling). This makes the algorithm heavier and should be studied for future work. default: FALSE.
 
 The reconciliation results are saved scattered in the folder `results` according to the batch split used with the name following the pattern `{h}_{dset}_{fmethod}_{from_split}to{to_split}.csv` as in `2_tourism_ets_28to35`
 The file shows the mae, rmse and energy score for many combinations of groups of the hierarchy (All, Upper, Bottom, etc) and reconciliation schemes (BottomUp, pMinT, LG) and the Base forecasts.
@@ -97,8 +93,8 @@ Rscript batchHier.R --help
 The algorithm is implemented in `bayesRecon` inside `reconciliationMethods.R`. It can be used as following:
 
 ```R
-bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="correlated")
-bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="independent")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, method="pmint")
+bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="lg")
 ```
 
 * `preds` : are the h-step predictions of each node
@@ -107,11 +103,9 @@ bayesRecon(basePredictions, sumMatrix, residualCovarianceMatrix, noiseType="inde
 
 * `mCovar` : is the hierarchy residuals (estimated) covariance matrix
 
-* `positivity` : positivity constraint, predictions are acquired from tmvn sampled mean. default: FALSE
-
 * `sampleSize` : sample size. default: 100000
 
-* `noiseType` : can be either `correlated` for pMinT or `independent` for Linear Gaussian (LG).
+* `method` : can be either `pmint` for pMinT or `lg` for Linear Gaussian (LG).
 
 * `kh`: should be either 1 or h.
 

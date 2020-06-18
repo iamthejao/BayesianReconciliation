@@ -1,4 +1,4 @@
-list.of.packages <- c("foreach", "doMC", "tictoc")
+list.of.packages <- c("foreach", "doMC", "tictoc", "forecast")
 new.packages <- list.of.packages[!(list.of.packages %in% installed.packages()[,"Package"])]
 if(length(new.packages)) install.packages(new.packages)
 
@@ -14,12 +14,12 @@ print(paste0("CPUS Used: ", floor(detectCores()/2)))
 
 # Set of variables usefull for debugging
 
-# dset = 'tourism'
+# dset = 'infantgts'
 # synth_n = 10
 # synthCorrel = 0.5
-# h = 2
+# h = 1
 # fmethod = 'ets'
-# iTest = 18
+# iTest = 10
 # seed = 0
 # savePredictions=FALSE
 # saveSamples = FALSE
@@ -29,9 +29,8 @@ print(paste0("CPUS Used: ", floor(detectCores()/2)))
 
 hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=50,
                         seed=0, synth_n=100, synthCorrel=0.5, # Parameters only for synthetic TS
-                        testProbability=0.0,
                         savePredictions=TRUE, saveSamples=FALSE,
-                        runPositive=FALSE, enforceKhOne=FALSE, sampleSize=100000) # Reasonable sampling point according to convergence test
+                        enforceKhOne=FALSE, sampleSize=100000) # Reasonable sampling point according to convergence test
   {
   
   # Setting seed and loading dataset
@@ -163,16 +162,15 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   y = aggts(train)
   residuals = (y - fitted)
   
-  # Flipping upper hierarchy due to residual definition
-  residuals[, upperIdx] = residuals[, upperIdx] * -1
-  
   # Calculating covariance matrix using shrink
+  # Using the method 'shrmint' should yield the **same** (up to a certain numerical precision) 
+  # result for the coherent predictions when comparing pMinT (our implementation)
+  # and MinT from the forecast.gts library.
   mCov_shrmint = estimateCovariance(residuals, method='shrmint')
   
   # Covariance for the base case
   mCov_base = matrix(0, nrow=numTs, ncol=numTs)
   diag(mCov_base) = diag(mCov_shrmint) * kh
-  #diag(mCov_base) = sigma^2
   
   # Saving predictions
   tic("Generating Data")
@@ -182,30 +180,14 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   # Indep stands for the independent case where cross-covariance = 0. In the paper, it is called Linear Gaussian
 
   # Correlated upper and bottom residuals
-  outBayesCorr = bayesRecon(preds, mSumMatrix, mCov_shrmint, positivity=FALSE, noiseType="correlated",
+  outBayesCorr = bayesRecon(preds, mSumMatrix, mCov_shrmint, method="pmint",
                             sampleSize=sampleSize,
                             kh=kh)
   
   # Independent (no cross-correlation) upper and bottom residuals
-  outBayesIndep = bayesRecon(preds, mSumMatrix, mCov_shrmint, positivity=FALSE, noiseType="independent",
+  outBayesIndep = bayesRecon(preds, mSumMatrix, mCov_shrmint, method="lg",
                              sampleSize=sampleSize,
                              kh=kh)
-  
-  # Future work on positivity constraint
-  if (runPositive){
-    # Correlated upper and bottom residuals and truncated distribution
-    outBayesCorrPos = bayesRecon(preds, mSumMatrix, mCov_shrmint, positivity=TRUE, noiseType="correlated",
-                                 sampleSize=sampleSize,
-                                 kh=kh)
-    
-    # Independent upper and bottom residuals and truncated distribution
-    outBayesIndepPos = bayesRecon(preds, mSumMatrix, mCov_shrmint, positivity=TRUE, noiseType="independent",
-                                  sampleSize=sampleSize,
-                                  kh=kh)
-  } else {
-    outBayesCorrPos = NULL
-    outBayesIndepPos = NULL
-  }
   
   # In order to calculate the energyScore of the base
   # Sample from a MVN with diagonal covariance matrix
@@ -216,18 +198,6 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   bottomUpSample = sampleMVN(preds[bottomIdx], kh*mSigmaB, sampleSize=sampleSize)
   bottomUpSample = cppMatMult(bottomUpSample, mSumMatrixT)
   outBottomUp = list("preds"=predsBottomUp)
-  
-  bottomUpPosSample = NULL
-  if (runPositive){
-    # BottomUp Positivity sampling
-    bottomUpPosSample = sampleMVN(preds[bottomIdx], kh*mSigmaB, sampleSize=sampleSize, positivity=TRUE)
-    bottomUpPosSample = cppMatMult(bottomUpPosSample, mSumMatrixT)
-    bottomUpPosMeanSample = colMeans(bottomUpPosSample)
-    bottomUpPosMedianSample = colMedians(bottomUpPosSample)
-    outBottomUp["predsMeanPosSample"] = bottomUpPosMeanSample
-    outBottomUp["predsMedianPosSample"] = bottomUpPosMedianSample
-  }
-  
   toc()
   
   tic("Calculating statistics")
@@ -258,25 +228,6 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
                                         outBayesIndep$coherentPreds, outBayesIndep$coherentPredsMedianSample,
                                         outBayesIndep$sample, groupings,
                                         suffix="_Indep")
-  
-  statsBottomUpPos = NULL
-  statsBayesCorrPos = NULL
-  statsBayesIndepPos = NULL
-  if (runPositive){
-    statsBottomUpPos = calculateStatistics(target,
-                                           bottomUpPosMeanSample, bottomUpPosMedianSample,
-                                           bottomUpPosSample, groupings,
-                                           suffix="_BottomUpPos")
-    statsBayesCorrPos = calculateStatistics(target,
-                                            outBayesCorrPos$coherentPredsSample, outBayesCorrPos$coherentPredsMedianSample,
-                                            outBayesCorrPos$sample, groupings,
-                                            suffix="_CorrPos")
-    statsBayesIndepPos = calculateStatistics(target,
-                                             outBayesIndepPos$coherentPredsSample, outBayesIndepPos$coherentPredsMedianSample,
-                                             outBayesIndepPos$sample, groupings,
-                                             suffix="_IndepPos")
-    
-  }
   toc()
   
   # Takes a lot of space depending on sampleSize
@@ -295,65 +246,14 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   if (savePredictions){
     # Removing samples in order to take less space
     outBayesCorr$sample = NULL
-    outBayesCorrPos$sample = NULL
     outBayesIndep$sample = NULL
-    outBayesIndepPos$sample = NULL
     savePredictions = paste0("predictions/", paste(dset, fmethod, h, kh, iTest, sep="_"),".RData")
-    save(outBayesCorr, outBayesCorrPos, outBayesIndep, outBayesIndepPos, preds, outBottomUp, target, file=savePredictions)
-  }
-  
-  # At this point, we double check if the bayesian reconciliation method pMinT matches
-  # the results of MinT from Hyndman's library
-  # With a certain probability (this step can be very costly for big datasets since we dont have the models cached)
-  # normDiff is saved to be evaluated later
-  rmseMint = NaN
-  normDiff = NaN
-  set.seed(Sys.time())
-  if (runif(1) <= testProbability){
-    fcastMintShr = tryCatch(
-      {
-        set.seed(seed)
-        print("Performing MinT on library for double check")
-        tic("Running MinT")
-        if (fmethod == "ets"){
-          fcastMintShr <-forecast.gts(train, h = h, method = "comb", weights="mint",
-                                      fmethod=fmethod, covariance="shr", additive.only = TRUE,
-                                      parallel=parallel, num.cores=5)
-        } else {
-          fcastMintShr <-forecast.gts(train, h = h, method = "comb", weights="mint",
-                                      fmethod=fmethod, covariance="shr",
-                                      parallel=parallel, num.cores=5)
-        }
-        toc()
-        fcastMintShr = allts(fcastMintShr)[h,]
-        fcastMintShr},
-      error=function(cond){
-      print("MinT ERROR")
-      print(cond)
-      return(NULL)}
-      , finally={}
-      )
-    
-    if (is.null(fcastMintShr)){
-      rmseMint = -1
-      normDiff = -1
-    } else {
-      rmseMint  <- sqrt(mean((allts(test)[h,] - fcastMintShr)^2))
-      diff = (fcastMintShr - outBayesCorr$coherentPreds)
-      normDiff = norm(diff, "2")
-      normFcast = norm(fcastMintShr, "2")
-      if ((normDiff/normFcast) > 0.01){
-        print("Bayes and MinT slightly different.")
-        print(statsBayesCorr$rmseMeanAll_Corr)
-        print(rmseMint)
-        #stop("MinT and Bayes result diverged.")
-      }
-    }
+    save(outBayesCorr, outBayesIndep, preds, outBottomUp, target, file=savePredictions)
   }
   
   # Saving outputs in a dataframe and sending out
-  statistics = c(statsBase, statsBottomUp, statsBottomUpPos, statsBayesCorr, statsBayesCorrPos, statsBayesIndep, statsBayesIndepPos)
-  output = list(dset=dset, h=h, iTest=iTest, fmethod=fmethod, rmseMint=rmseMint, normDiffMint=normDiff)
+  statistics = c(statsBase, statsBottomUp, statsBayesCorr, statsBayesIndep)
+  output = list(dset=dset, h=h, iTest=iTest, fmethod=fmethod, khOne=enforceKhOne)
   dataFrame = data.frame(c(output, statistics))
   
   return(dataFrame)
