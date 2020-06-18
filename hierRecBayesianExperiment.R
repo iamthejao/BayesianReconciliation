@@ -13,7 +13,6 @@ print(paste0("CPUS Available: ", detectCores()))
 print(paste0("CPUS Used: ", floor(detectCores()/2)))
 
 # Set of variables usefull for debugging
-
 # dset = 'infantgts'
 # synth_n = 10
 # synthCorrel = 0.5
@@ -176,12 +175,12 @@ hierRecBayesianExperiment <- function(dset, h, fmethod="ets", iTest=1, testSize=
   # Indep stands for the independent case where cross-covariance = 0. In the paper, it is called Linear Gaussian
 
   # Correlated upper and bottom residuals
-  outBayesCorr = bayesRecon(preds, mSumMatrix, mCov_shrmint, method="pmint",
+  outBayesCorr = bayesRecon(preds, mSumMatrix, mCov_shrmint, reconType="pmint",
                             sampleSize=sampleSize,
                             kh=kh)
   
   # Independent (no cross-correlation) upper and bottom residuals
-  outBayesIndep = bayesRecon(preds, mSumMatrix, mCov_shrmint, method="lg",
+  outBayesIndep = bayesRecon(preds, mSumMatrix, mCov_shrmint, reconType="lg",
                              sampleSize=sampleSize,
                              kh=kh)
   

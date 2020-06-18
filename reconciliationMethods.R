@@ -252,14 +252,14 @@ sampleMVN <- function(mean, sigma, sampleSize, positivity=FALSE, seed=0, fromMar
 }
 
 # Bayesian Reconciliation function
-bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmint",
+bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, reconType="pmint",
                        seed=0, kh=1){
   
   mCovar = cbind(mCovar)
-  methods <- c("pmint", "lg")
-  if (! (method %in% methods)){
+  recons <- c("pmint", "lg")
+  if (! (reconType %in% recons)){
     print("method types are:")
-    print(methods)
+    print(recons)
     stop ("Wrong method supplied." )
   }
   
@@ -292,7 +292,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmi
   # cppMatMult is faster to bigger matrices
   # Smaller matrices I use %*% since the overhead would not make it worth
   
-  if (method=="lg"){
+  if (reconType=="lg"){
     
     # mSigma11 is mSigmaB
     mP1Gain = cppMatMult(mSigmaB, mAtr) # mSigma12 and mSigma21
@@ -302,7 +302,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmi
     # mP1Gain = (mSigmaB %*% mAtr) # mSigma12 and mSigma21
     # mP2Gain = (mSigmaU + (mA %*% mSigmaB %*% mAtr)) #mSigma22
     
-  } else if (method=="pmint") {
+  } else if (reconType=="pmint") {
     
     # Cross covariance
     mM = -1 * mCovar[bottomIdx, upperIdx]
@@ -357,7 +357,7 @@ bayesRecon <- function(preds, mSumMatrix, mCovar, sampleSize=100000, method="pmi
   out = list(posteriorMean=vBottomPosteriorMean, posteriorVariance=mSigmaBPosterior,
              coherentPreds=vCoherentPreds, coherentCovariance=mCoherentCovariance,
              incoherentPreds=preds, priorCovJoint=mPriorCovJoint, priorMeanJoint=vPriorMeans,
-             seed=seed, method=method)
+             seed=seed, reconType=reconType)
   
   sample = sampleMVN(vBottomPosteriorMean, mSigmaBPosterior, sampleSize, seed=seed)
   
