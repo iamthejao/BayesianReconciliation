@@ -44,7 +44,7 @@ Examples with generated data sets:
 ```
 Arguments:
 
-* `dset` : can be either `infantgts`, `tourism`, `synthetic` or `syntheticLarge` 
+* `dset` : can be either `infantgts`, `tourism` or `syntheticLarge` 
 
 * `fmethod` : method for generating the base forecasts: it can be either `arima` or `ets`. Default: 'ets'.
 
@@ -57,10 +57,7 @@ An additional set of parameters applies to set of experiments with synthetic tim
 
 * `seed` : seed (default:0)
 
-* `synth_n` : length of the generated time series. Default: 100.
-
-* `synthCorrel` : correlation of the noise affecting the bottom time series. Applies only to the `synthetic` case; default: 0.5.
-For the `syntheticLarge` case, the covariance matrix of the noise is set as in the MinT paper (Wickramasuriya et al., 2019)
+* `synth_n` : length of the generated time series for the `syntheticLarge` case. The covariance matrix of the noise is set as in the MinT paper (Wickramasuriya et al., 2019). Default: 100.
 
 * `savePredictions` : save predictions on prediction folder. default: TRUE
 
